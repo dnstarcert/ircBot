@@ -335,6 +335,7 @@ class MessageBox(QtGui.QMainWindow):
                     print "Received data: ", txt[:-2].decode("cp1251").encode("utf-8")
   
    def privmsg(self,txt):
+    ch = self.chan(txt)
     try:
      chars = txt
      u = UniversalDetector()
@@ -351,7 +352,7 @@ class MessageBox(QtGui.QMainWindow):
        elif result['encoding'] == "MacCyrillic": charset = "cp1251"
        else : charset = result['encoding']           
       #print charset
-     ch = self.chan(txt)
+     
      #print "->|%s|<-" % ch
      indx = txt.rfind("PRIVMSG") + len(ch) + 8
 
