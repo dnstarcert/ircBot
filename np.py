@@ -12,20 +12,24 @@
 #   $Id: xchat-audacious.py 4574 2007-05-16 07:46:17Z deitarion $
 import chardet
 
-from dbus import Bus, DBusException
-import re
-# connect to DBus
-bus = Bus(Bus.TYPE_SESSION)
+try: 
+    from dbus import Bus, DBusException
+    # connect to DBus
+    bus = Bus(Bus.TYPE_SESSION)
+except:
+    pass
+    
 def get_aud():
     try:
         return bus.get_object('org.atheme.audacious', '/org/atheme/audacious')
-    except DBusException:
+    except:
         print "\x02Either Audacious is not running or you have something wrong with your D-Bus setup."
         return None
  
 def command_np():
     aud = get_aud()
-    # audr = bus.get_object('org.mpris.audacious', '/')
+    if not aud:
+        return "", ""
     audi = bus.get_object('org.mpris.audacious', '/Player')
     audm = audi.GetMetadata()
     if aud:
