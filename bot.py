@@ -222,10 +222,10 @@ class MessageBox(QtGui.QMainWindow):
              sock.send("%s\n\r" % (myText[1:].encode("cp1251")))
             
         elif re.search(r"\A/part ",myText):
-        	if reviewEdit.has_key(myText[6:]) :
-        	 self.tab.removeTab(self.tab.indexOf(reviewEdit[myText[6:]]))
-        	 del reviewEdit[myText[6:]]
-        	 sock.send("%s\n\r" % (myText[1:].encode("cp1251")))
+         if reviewEdit.has_key(myText[6:]) :
+          self.tab.removeTab(self.tab.indexOf(reviewEdit[myText[6:]]))
+          del reviewEdit[myText[6:]]
+          sock.send("%s\n\r" % (myText[1:].encode("cp1251")))
         elif ch == "RAW": #NOT WORK
          sock.send("%s\n\r" % (myText.encode("cp1251")))
          reviewEdit[ch].append(u"%s> %s" % ("My",myText))
@@ -392,10 +392,10 @@ class MessageBox(QtGui.QMainWindow):
       tt.start()
 
    def loger(self,txt,ch,indx):
-   	f = open("log.html","a")
-   	txt = self.txtReplace(txt)
-   	f.writelines("<font color=red>[%s] </font><font color=purple>%s</font> <font color=blue>%s</font>%s<br />" % (time.strftime("%d %m %Y %H:%M:%S"),ch,self.UserNick(txt),txt[indx:]))
-   	f.close()
+    f = open("log.html","a")
+    txt = self.txtReplace(txt)
+    f.writelines("<font color=red>[%s] </font><font color=purple>%s</font> <font color=blue>%s</font>%s<br />" % (time.strftime("%d %m %Y %H:%M:%S"),ch,self.UserNick(txt),txt[indx:]))
+    f.close()
    def link(self,txt,ch,indx,charset):
     p = re.compile(r"((ht|f)tps?:\/\/[\w\.-]+\/[\w\.-\/]+\.(jpg|png|gif))")
     m = p.findall(txt)

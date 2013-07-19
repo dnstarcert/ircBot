@@ -1,3 +1,4 @@
+#!/usr/bin/python
 #
 # -*- coding: utf-8 -*- 
 #
@@ -31,7 +32,7 @@ def command_np():
         pos = aud.Position()
         playLength = aud.Length()
         length = aud.SongLength(pos)
-        # tlength = (length > 0) and ("%d:%02d" % (length / 60, length % 60)) or "stream"
+        tlength = (length > 0) and ("%d:%02d" % (length / 60, length % 60)) or "stream"
         # if tlength == 'stream':
         #     np = "say np: " + " - 10[ " + unicode(audm['artist']).encode('utf-8') + " ]10" + " - " + unicode(audm['title']).encode('utf-8') 
         #     return np
@@ -49,5 +50,7 @@ def command_np():
         charsw = charsw.replace('ascii','utf-8')
         np = "np: " + unicode(audm['artist']).encode(charsw) +  \
 " - " + unicode(audm['title']).encode(charsw) + " { " + ("%d:%02d" % (playSecs / 60, playSecs % 60)) + "/" + tlength + " }" +  " { " + str(info[0]/1000) +\
- " kbps" + " / " + str(info[1]/1000) + " kHz } "
-    return np,charsw
+" kbps" + " / " + str(info[1]/1000) + " kHz } "
+        print "now playing: %s " % np
+        return np,charsw
+command_np()
