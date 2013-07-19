@@ -25,31 +25,28 @@ def get_aud():
  
 def command_np():
     aud = get_aud()
-    audr = bus.get_object('org.mpris.audacious', '/')
+    # audr = bus.get_object('org.mpris.audacious', '/')
     audi = bus.get_object('org.mpris.audacious', '/Player')
     audm = audi.GetMetadata()
     if aud:
         pos = aud.Position()
-        playLength = aud.Length()
         length = aud.SongLength(pos)
-        tlength = length if length > 0 else "stream"
-        # if tlength == 'stream':
-        #     np = "say np: " + " - 10[ " + unicode(audm['artist']).encode('utf-8') + " ]10" + " - " + unicode(audm['title']).encode('utf-8') 
-        #     return np, ""
-        playSecs = aud.Time() / 1000
-        n = playSecs * 11 / length
+        if length <= 0:
+            print "possible stream"
+            return "", "" 
+        cur_pos = aud.Time() / 1000
         info = aud.Info()
         try:
             chars = chardet.detect(unicode(audm['artist']).encode('utf-8'))
+            charsw = chars['encoding'].replace('ascii','utf-8')
         except:
             print "unknown"
-            return None
-        charsw = chars['encoding'].replace('ascii','utf-8')
+            return "", ""
         np = "np: %s - %s { %d:%02d/%d:%02d } { %d kbps / %d kHz }"  \
              % (unicode(audm['artist']).encode(charsw),
                 unicode(audm['title']).encode(charsw),
-                playSecs / 60, playSecs % 60,
-                tlength / 60, tlength % 60, 
+                cur_pos / 60, cur_pos % 60,
+                length / 60, length % 60, 
                 info[0]/1000, info[1]/1000)
         return np, charsw
 
