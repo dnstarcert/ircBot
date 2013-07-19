@@ -19,7 +19,7 @@
 import socket
 import thread
 import threading
-import sys, os
+import sys, inspect, os
 import string,StringIO
 import os.path
 import time
@@ -37,9 +37,12 @@ from PyQt4 import QtCore
 from np import *
 
 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-os.chdir(os.path.dirname(__file__))
+os.chdir(os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe()))))
 
 reviewEdit = {}
+
+CHANNEL_RE = re.compile('PRIVMSG (#\w+) :')
+NICK_RE = re.compile(":([\w\-]+)!")
 
 class MyThread(QtCore.QThread):
    ch = ""
@@ -442,13 +445,11 @@ class MessageBox(QtGui.QMainWindow):
     return txt
 
    def chan(self,ch):
-    p = re.compile(r"(#[a-zA-Z0-9].*) :")
-    return p.findall(ch)[0]
+    return CHANNEL_RE.search(ch).group(1)
 # irc.shock-world.com 319
 
    def UserNick(self,nck):
-    p = re.compile(r"\A:([a-zA-Z0-9].*)!")
-    return p.findall(nck)[0]                	
+    return NICK_RE.match(nck).group(1)              	
 # CTCP \x01VERSION\x01\                
    def send_ping(self):
     while self.threadLife:
