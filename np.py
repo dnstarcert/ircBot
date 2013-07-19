@@ -32,25 +32,26 @@ def command_np():
         pos = aud.Position()
         playLength = aud.Length()
         length = aud.SongLength(pos)
-        tlength = (length > 0) and ("%d:%02d" % (length / 60, length % 60)) or "stream"
+        tlength = length if length > 0 else "stream"
         # if tlength == 'stream':
         #     np = "say np: " + " - 10[ " + unicode(audm['artist']).encode('utf-8') + " ]10" + " - " + unicode(audm['title']).encode('utf-8') 
-        #     return np
+        #     return np, ""
         playSecs = aud.Time() / 1000
         n = playSecs * 11 / length
         info = aud.Info()
         try:
-            chars = chardet.detect(unicode(audm['artist']).encode('cp1251'))
+            chars = chardet.detect(unicode(audm['artist']).encode('utf-8'))
         except:
             print "unknown"
             return None
-        charsw = chars['encoding'].replace('windows-1251','utf8')
-        charsw = charsw.replace('utf-8','cp1251')
-        charsw = charsw.replace('utf8','utf-8')
-        charsw = charsw.replace('ascii','utf-8')
-        np = "np: " + unicode(audm['artist']).encode(charsw) +  \
-" - " + unicode(audm['title']).encode(charsw) + " { " + ("%d:%02d" % (playSecs / 60, playSecs % 60)) + "/" + tlength + " }" +  " { " + str(info[0]/1000) +\
-" kbps" + " / " + str(info[1]/1000) + " kHz } "
-        print "now playing: %s " % np
-        return np,charsw
-command_np()
+        charsw = chars['encoding'].replace('ascii','utf-8')
+        np = "np: %s - %s { %d:%02d/%d:%02d } { %d kbps / %d kHz }"  \
+             % (unicode(audm['artist']).encode(charsw),
+                unicode(audm['title']).encode(charsw),
+                playSecs / 60, playSecs % 60,
+                tlength / 60, tlength % 60, 
+                info[0]/1000, info[1]/1000)
+        return np, charsw
+
+if __name__ == '__main__':
+    command_np() 
