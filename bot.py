@@ -40,7 +40,7 @@ os.chdir(os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())
 
 reviewEdit = {}
 
-CHANNEL_RE = re.compile('PRIVMSG (#?\w+) :')
+CHANNEL_RE = re.compile('PRIVMSG (#?[\w\-]+) :')
 NICK_RE = re.compile(":([\w\-]+)!")
 IMAGE_RE = re.compile(r"((ht|f)tps?:\/\/[\w\.-]+\/[\w\.-\/]+\.(jpg|png|gif|bmp))")
 
