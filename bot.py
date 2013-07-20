@@ -19,12 +19,12 @@
 import socket
 import thread
 import threading
-import sys, inspect, os
-import string,StringIO
+import sys, inspect, os, tempfile
+import cgi
+import string, StringIO
 import os.path
 import time
 import re
-import chardet
 from chardet.universaldetector import UniversalDetector
 import Queue
 import urllib2
@@ -41,8 +41,9 @@ os.chdir(os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())
 
 reviewEdit = {}
 
-CHANNEL_RE = re.compile('PRIVMSG (#\w+) :')
+CHANNEL_RE = re.compile('PRIVMSG (#?\w+) :')
 NICK_RE = re.compile(":([\w\-]+)!")
+IMAGE_RE = re.compile(r"((ht|f)tps?:\/\/[\w\.-]+\/[\w\.-\/]+\.(jpg|png|gif|bmp))")
 
 class MyThread(QtCore.QThread):
    ch = ""
@@ -144,12 +145,12 @@ class MessageBox(QtGui.QMainWindow):
 
 
 
-        self.buttonConnect = QtGui.QPushButton(u'Соеденится', self)
+        self.buttonConnect = QtGui.QPushButton(u'Соединиться', self)
         self.buttonConnect.setGeometry(600, 10, 120, 20)
         self.buttonConnect.setShortcut('Ctrl+Enter')
         self.buttonConnect.setStatusTip('Connect')
 
-        self.buttonDisconnect = QtGui.QPushButton(u'Отключится', self)
+        self.buttonDisconnect = QtGui.QPushButton(u'Отключиться', self)
         self.buttonDisconnect.setGeometry(730, 10, 120, 20)
         self.buttonDisconnect.setShortcut('Ctrl + Enter')
         self.buttonDisconnect.setStatusTip('Disconnect')
@@ -401,55 +402,53 @@ class MessageBox(QtGui.QMainWindow):
     f.writelines("<font color=red>[%s] </font><font color=purple>%s</font> <font color=blue>%s</font>%s<br />" % (time.strftime("%d %m %Y %H:%M:%S"),ch,self.UserNick(txt),txt[indx:]))
     f.close()
    def link(self,txt,ch,indx,charset):
-    p = re.compile(r"((ht|f)tps?:\/\/[\w\.-]+\/[\w\.-\/]+\.(jpg|png|gif))")
-    m = p.findall(txt)
-    #res = urllib2.urlopen(m.group(0))
-    #url = urlparse(m.group(0))
-    #print "parse : ", url
-    print "url : ", m[0][0]
+    m = IMAGE_RE.findall(txt)
     for x in xrange(len(m)):
+        print "url: %s" % m[x][0]
         res = urllib2.urlopen(m[x][0])
         url = urlparse(m[x][0])
         info = res.info()
         mimetype = info.getmaintype()
         if mimetype == "image" :
-         imgSrc = res.read()
-         img = Image.open(StringIO.StringIO(imgSrc))
-         path = "/tmp/%s" % url.path.replace("/","_")
-         img.save(path)
-         print path
-         nck = self.UserNick(txt)
-         txt = self.txtReplace(txt)
-         reviewEdit[ch].append("<img src=%s> <br /><font color=red>[%s] </font><font color=blue>%s</font>%s <font color=green> (%s)</font>" % (path,time.strftime("%H:%M:%S"),nck,txt[indx:].decode(charset),charset))
-         #cur = reviewEdit[ch].textCursor()
-         #cur.movePosition(QtGui.QTextCursor.End)
-         #reviewEdit[ch].setTextCursor(cur)
-         #print cur.position()
+            imgSrc = res.read()
+            img = Image.open(StringIO.StringIO(imgSrc))
+            path = tempfile.mkstemp(suffix = url.path.replace("/","_"), prefix = '%d_' % x)[1]
+            img.save(path)
+            print path
+            nck = self.UserNick(txt)
+            txt = self.txtReplace(txt)
+            reviewEdit[ch].append("<img src=%s> <br /><font color=red>[%s] </font><font color=blue>%s</font>%s <font color=green> (%s)</font>" % (path,time.strftime("%H:%M:%S"),nck,txt[indx:].decode(charset),charset))
+            #cur = reviewEdit[ch].textCursor()
+            #cur.movePosition(QtGui.QTextCursor.End)
+            #reviewEdit[ch].setTextCursor(cur)
+            #print cur.position()
         else : pass
 
    def txtReplace(self,txt):
-    txt = txt.replace("\r\n","")
-    txt = txt.replace("&","&amp;")
-    txt = txt.replace('<',"&lt;")
-    txt = txt.replace(">","&gt;") 
-    txt = txt.replace("\"","&quot;")
-    ##txt = txt.replace(" ","&nbsp;")
-    txt = txt.replace("®","&reg;")
-    txt = txt.replace("£","&pound;")
-    txt = txt.replace("§","&sect;")
-    txt = txt.replace("©","&copy")
-    txt = txt.replace("²","&sup2;")
-    txt = txt.replace("³","&sup3;")
-    txt = txt.replace("»","&raquo;")
-    txt = txt.replace("«","&laquo;")
-    return txt
+    # txt = txt.replace("\r\n","")
+    # txt = txt.replace("&","&amp;")
+    # txt = txt.replace('<',"&lt;")
+    # txt = txt.replace(">","&gt;") 
+    # txt = txt.replace('"',"&quot;")
+    # ##txt = txt.replace(" ","&nbsp;")
+    # txt = txt.replace("®","&reg;")
+    # txt = txt.replace("£","&pound;")
+    # txt = txt.replace("§","&sect;")
+    # txt = txt.replace("©","&copy")
+    # txt = txt.replace("²","&sup2;")
+    # txt = txt.replace("³","&sup3;")
+    # txt = txt.replace("»","&raquo;")
+    # txt = txt.replace("«","&laquo;")
+    # return txt
+    return cgi.escape(txt)
 
-   def chan(self,ch):
-    return CHANNEL_RE.search(ch).group(1)
+   def chan(self, line):
+    return CHANNEL_RE.search(line).group(1)
 # irc.shock-world.com 319
 
-   def UserNick(self,nck):
-    return NICK_RE.match(nck).group(1)              	
+   def UserNick(self, line):
+    return NICK_RE.match(line).group(1)   
+
 # CTCP \x01VERSION\x01\                
    def send_ping(self):
     while self.threadLife:
@@ -517,15 +516,16 @@ def threadNumber():
            qb.model.appendRow(item)
            items.append(name) 
         time.sleep(0.1)
-    
-app = QtGui.QApplication(sys.argv)
 
-qb = MessageBox()
-qb.show()
-reviewEdit["RAW"].append("Bot started")
-listener = threading.Thread(target=threadNumber, args=())
-listener.daemon = True
-listener.setName("Thread List")
-listener.start()
+if __name__ == '__main__':
+    app = QtGui.QApplication(sys.argv)
 
-sys.exit(app.exec_())
+    qb = MessageBox()
+    qb.show()
+    reviewEdit["RAW"].append("Bot has been started")
+    listener = threading.Thread(target=threadNumber, args=())
+    listener.daemon = True
+    listener.setName("Thread List")
+    listener.start()
+
+    sys.exit(app.exec_())
