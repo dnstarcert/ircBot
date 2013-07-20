@@ -34,6 +34,7 @@ from urlparse import urlparse
 from PyQt4 import QtGui
 from PyQt4 import QtCore
 from np import *
+import ConfigParser
 
 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 os.chdir(os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe()))))
@@ -54,7 +55,15 @@ class MyThread(QtCore.QThread):
 
 
 class MessageBox(QtGui.QMainWindow):
-   def __init__(self, parent=None):
+   
+
+   def __init__(self, parent=None,defaultNick="",defaultServer="",defaultPort="",channels=[]):
+
+        self.defaultNick = defaultNick
+        self.channels = channels
+        self.defaultServer = defaultServer
+        self.defaultPort = defaultPort
+
 
         QtGui.QWidget.__init__(self, parent)
 
@@ -113,7 +122,7 @@ class MessageBox(QtGui.QMainWindow):
         self.serverAddr = QtGui.QLineEdit(self)
         self.serverAddr.setGeometry(100, 10, 100, 20)
         self.serverAddr.setStatusTip(u'Адрес сервера:')
-        self.serverAddr.setText('irc.shock-world.com')
+        self.serverAddr.setText(self.defaultServer)
 
         self.textMesgTitle = QtGui.QLabel(self)
         self.textMesgTitle.setGeometry(210, 10, 500, 20)
@@ -122,7 +131,7 @@ class MessageBox(QtGui.QMainWindow):
         self.serverPort = QtGui.QLineEdit(self)
         self.serverPort.setGeometry(250, 10, 100, 20)
         self.serverPort.setStatusTip(u'Порт сервера:')
-        self.serverPort.setText('6667')
+        self.serverPort.setText(self.defaultPort)
 
         self.textMesgTitle = QtGui.QLabel(self)
         self.textMesgTitle.setGeometry(360, 10, 500, 20)
@@ -131,7 +140,7 @@ class MessageBox(QtGui.QMainWindow):
         self.nick = QtGui.QLineEdit(self)
         self.nick.setGeometry(450, 10, 80, 20)
         self.nick.setStatusTip(u'Ник:')
-        self.nick.setText(u'Ghost')
+        self.nick.setText(unicode(self.defaultNick))
 
         self.sendText = QtGui.QLineEdit(self)
         self.sendText.setGeometry(10, 780, 1450, 20)
@@ -276,14 +285,10 @@ class MessageBox(QtGui.QMainWindow):
                 elif txt[-5:-2] == ("+iw"):
                     print "JOIN: "
                     print txt
-                    setattr(self.thread,"ch","#test")
-                    self.thread.start()
-                    time.sleep(1)
-                    setattr(self.thread,"ch","#shock-world")
-                    self.thread.start()
-                    time.sleep(1)
-                    setattr(self.thread,"ch","#help")
-                    self.thread.start()
+                    for x in self.channels:
+                        setattr(self.thread,"ch",x)
+                        self.thread.start()
+                        time.sleep(1)
                     reviewEdit["RAW"].append("Connected")
                     #sock.send('WHOIS %s \n\r' % self.nick.text())
                     #thread.start_new_thread(self.send_ping,())
@@ -521,8 +526,11 @@ def threadNumber():
 
 if __name__ == '__main__':
     app = QtGui.QApplication(sys.argv)
+    config = ConfigParser.RawConfigParser()
+    config.read('bot.cfg')
+    channels = config.get("bot","channels").split(",")
 
-    qb = MessageBox()
+    qb = MessageBox(None,config.get("bot","nick"),config.get("bot","server"),config.get("bot","port"),channels)
     qb.show()
     reviewEdit["RAW"].append("Bot has been started")
     listener = threading.Thread(target=threadNumber, args=())
