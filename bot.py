@@ -32,7 +32,6 @@ from PIL import Image
 from urlparse import urlparse
 
 from PyQt4 import QtGui
-from PyQt4.QtGui import *
 from PyQt4 import QtCore
 from np import *
 
@@ -84,8 +83,8 @@ class MessageBox(QtGui.QMainWindow):
 
         self.nameMesgThread = QtGui.QListView(self)
         self.nameMesgThread.setGeometry(1470, 40, 120, 730)
-        self.model = QStandardItemModel(self.nameMesgThread)
-        self.item = QStandardItem()
+        self.model = QtGui.QStandardItemModel(self.nameMesgThread)
+        self.item = QtGui.QStandardItem()
         #self.model.appendRow(self.item)
         self.nameMesgThread.setModel(self.model)
 
@@ -360,7 +359,7 @@ class MessageBox(QtGui.QMainWindow):
      #print "->|%s|<-" % ch
      indx = txt.rfind("PRIVMSG") + len(ch) + 8
 
-     if re.search(r"(ht|f)tps?:\/\/[\w\.-]+\/[\w\.-\/]+\.(jpg|png|gif)",txt): 
+     if IMAGE_RE.search(txt): 
         tt = threading.Thread(target=self.link, args=(txt,ch,indx,charset,))
         tt.daemon = False
         tt.setName("image")
@@ -471,7 +470,7 @@ class MessageBox(QtGui.QMainWindow):
     #thread.interrupt_main()
    def NowPlay(self):
     try:
-        np,charsw = command_np()
+        np, charsw = command_np()
         ch = str(self.tab.tabText(self.tab.currentIndex())).encode("cp1251")
         reviewEdit[ch].append("<font color=red>[%s] </font><font color=blue>%s </font>:%s" % (time.strftime("%H:%M:%S"),self.nick.text(),np.decode(charsw)))       
         sock.send("PRIVMSG %s :%s\n\r" % (ch,np.decode(charsw).encode("cp1251")))
@@ -515,7 +514,7 @@ def threadNumber():
          # print "->%s<-" % len(find)
           if len(find) == 0: 
            #if name == "MainThread":
-           item = QStandardItem(name)
+           item = QtGui.QStandardItem(name)
            qb.model.appendRow(item)
            items.append(name) 
         time.sleep(0.1)
