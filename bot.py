@@ -27,7 +27,7 @@ import time
 import re
 from chardet.universaldetector import UniversalDetector
 import Queue
-import urllib2
+import urllib2, base64
 from PIL import Image
 from urlparse import urlparse
 
@@ -408,16 +408,19 @@ class MessageBox(QtGui.QMainWindow):
         res = urllib2.urlopen(m[x][0])
         url = urlparse(m[x][0])
         info = res.info()
+        print info.gettype()
         mimetype = info.getmaintype()
         if mimetype == "image" :
             imgSrc = res.read()
-            img = Image.open(StringIO.StringIO(imgSrc))
-            path = tempfile.mkstemp(suffix = url.path.replace("/","_"), prefix = '%d_' % x)[1]
-            img.save(path)
-            print path
+            #img = Image.open(StringIO.StringIO(imgSrc))
+            image_64 = base64.encodestring(imgSrc)
+            image = "%s;base64,%s" % (info.gettype(),image_64)
+            #path = tempfile.mkstemp(suffix = url.path.replace("/","_"), prefix = '%d_' % x)[1]
+            #img.save(path)
+            #print path," base64->%s<-" % image_64
             nck = self.UserNick(txt)
             txt = self.txtReplace(txt)
-            reviewEdit[ch].append("<img src=%s> <br /><font color=red>[%s] </font><font color=blue>%s</font>%s <font color=green> (%s)</font>" % (path,time.strftime("%H:%M:%S"),nck,txt[indx:].decode(charset),charset))
+            reviewEdit[ch].append("<img src=\"data:%s\"> <br /><font color=red>[%s] </font><font color=blue>%s</font>%s <font color=green> (%s)</font>" % (image,time.strftime("%H:%M:%S"),nck,txt[indx:].decode(charset),charset))
             #cur = reviewEdit[ch].textCursor()
             #cur.movePosition(QtGui.QTextCursor.End)
             #reviewEdit[ch].setTextCursor(cur)
