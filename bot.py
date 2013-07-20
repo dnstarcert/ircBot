@@ -57,12 +57,13 @@ class MyThread(QtCore.QThread):
 class MessageBox(QtGui.QMainWindow):
    
 
-   def __init__(self, parent=None,defaultNick="",defaultServer="",defaultPort="",channels=[]):
+   def __init__(self, parent=None,defaultNick="",defaultServer="",defaultPort="",channels=[],defaultEncoding="cp1251"):
 
         self.defaultNick = defaultNick
         self.channels = channels
         self.defaultServer = defaultServer
         self.defaultPort = defaultPort
+        self.defaultEncoding = defaultEncoding
 
 
         QtGui.QWidget.__init__(self, parent)
@@ -231,19 +232,19 @@ class MessageBox(QtGui.QMainWindow):
              reviewEdit[myText[6:]].setReadOnly(True)
              reviewEdit[myText[6:]].setTextCursor(self.textCursor)
              self.tab.addTab(reviewEdit[myText[6:]], myText[6:])
-             sock.send("%s\n\r" % (myText[1:].encode("cp1251")))
+             sock.send("%s\n\r" % (myText[1:].encode(self.defaultEncoding)))
             
         elif re.search(r"\A/part ",myText):
          if reviewEdit.has_key(myText[6:]) :
           self.tab.removeTab(self.tab.indexOf(reviewEdit[myText[6:]]))
           del reviewEdit[myText[6:]]
-          sock.send("%s\n\r" % (myText[1:].encode("cp1251")))
+          sock.send("%s\n\r" % (myText[1:].encode(self.defaultEncoding)))
         elif ch == "RAW": #NOT WORK
-         sock.send("%s\n\r" % (myText.encode("cp1251")))
+         sock.send("%s\n\r" % (myText.encode(self.defaultEncoding)))
          reviewEdit[ch].append(u"%s> %s" % ("My",myText))
         elif ch != "RAW":
          #ch = str(self.Channel.currentText()).encode("cp1251")
-         sock.send("PRIVMSG %s :%s\n\r" % (ch,myText.encode("cp1251")))
+         sock.send("PRIVMSG %s :%s\n\r" % (ch,myText.encode(self.defaultEncoding)))
          reviewEdit[ch].append("<font color=red>[%s]</font> <font color=blue>%s </font>:<font color=gray>%s</font>" % (time.strftime("%H:%M:%S"),self.nick.text(),myText))
          #reviewEdit.append(u"%s> %s" % ("My",myText))
         self.sendText.setText("")
@@ -340,7 +341,7 @@ class MessageBox(QtGui.QMainWindow):
                     tt.setName("privmsg")
                     tt.start()
                 else : 
-                    print "Received data: ", txt[:-2].decode("cp1251").encode("utf-8")
+                    print "Received data: ", txt[:-2].decode(self.defaultEncoding).encode("utf-8")
   
    def privmsg(self,txt):
     ch = self.chan(txt)
@@ -393,7 +394,7 @@ class MessageBox(QtGui.QMainWindow):
       #print "link: %s" % self.link(txt)
       txt = self.txtReplace(txt)
       reviewEdit["RAW"].append("<font color=red>[%s] </font><font color=purple>%s</font> <font color=blue>%s</font> %s" % (time.strftime("%H:%M:%S"),ch,self.UserNick(txt),txt[indx:]))
-      reviewEdit[ch].append("<font color=red>[%s] </font><font color=blue>%s</font>%s<font color=green> (%s)</font>" % (time.strftime("%H:%M:%S"),self.UserNick(txt),txt[indx:].decode("cp1251"),"error"))
+      reviewEdit[ch].append("<font color=red>[%s] </font><font color=blue>%s</font>%s<font color=green> (%s)</font>" % (time.strftime("%H:%M:%S"),self.UserNick(txt),txt[indx:].decode(self.defaultEncoding),"error"))
     finally:
       tt = threading.Thread(target=self.loger, args=(txt,ch,indx,))
       tt.daemon = False
@@ -478,7 +479,7 @@ class MessageBox(QtGui.QMainWindow):
         np, charsw = command_np()
         ch = str(self.tab.tabText(self.tab.currentIndex())).encode("cp1251")
         reviewEdit[ch].append("<font color=red>[%s] </font><font color=blue>%s </font>:%s" % (time.strftime("%H:%M:%S"),self.nick.text(),np.decode(charsw)))       
-        sock.send("PRIVMSG %s :%s\n\r" % (ch,np.decode(charsw).encode("cp1251")))
+        sock.send("PRIVMSG %s :%s\n\r" % (ch,np.decode(charsw).encode(self.defaultEncoding)))
     except:
         pass
    def create_rewed(self,ch):
@@ -530,7 +531,7 @@ if __name__ == '__main__':
     config.read('bot.cfg')
     channels = config.get("bot","channels").split(",")
 
-    qb = MessageBox(None,config.get("bot","nick"),config.get("bot","server"),config.get("bot","port"),channels)
+    qb = MessageBox(None,config.get("bot","nick"),config.get("bot","server"),config.get("bot","port"),channels,config.get("bot","encoding"))
     qb.show()
     reviewEdit["RAW"].append("Bot has been started")
     listener = threading.Thread(target=threadNumber, args=())
