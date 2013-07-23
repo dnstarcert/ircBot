@@ -64,6 +64,8 @@ class MessageBox(QtGui.QMainWindow):
         self.defaultServer = defaultServer
         self.defaultPort = defaultPort
         self.defaultEncoding = defaultEncoding
+        self.QColorRed = QtGui.QColor(255, 0, 0) 
+        self.QColorBlack = QtGui.QColor(0, 0, 0) 
 
 
         QtGui.QWidget.__init__(self, parent)
@@ -105,7 +107,9 @@ class MessageBox(QtGui.QMainWindow):
         reviewEdit["RAW"].setTextInteractionFlags( QtCore.Qt.TextSelectableByMouse | QtCore.Qt.LinksAccessibleByMouse | QtCore.Qt.LinksAccessibleByKeyboard  )
         print reviewEdit["RAW"].isReadOnly()
         reviewEdit["RAW"].setTextCursor(self.textCursor)
-        self.tab.addTab(reviewEdit["RAW"], u"RAW")
+        
+        self.tab.addTab(reviewEdit["RAW"],u"RAW")
+        
 
 #        reviewEdit["#shock-world"] = QtGui.QTextEdit()
 #        reviewEdit["#shock-world"].setReadOnly(True)
@@ -181,6 +185,7 @@ class MessageBox(QtGui.QMainWindow):
         self.connect(self.buttonEnc, QtCore.SIGNAL('clicked()'), self.sendMessage)
         self.connect(self.buttonNp, QtCore.SIGNAL('clicked()'), self.NowPlay)
         self.connect(self.thread, QtCore.SIGNAL("mysignal(QString)"),self.create_rewed, QtCore.Qt.QueuedConnection)
+        self.connect(self.tab, QtCore.SIGNAL('currentChanged(int)'), self.tabChange)
 
         self.threadLife = 1
 
@@ -297,12 +302,7 @@ class MessageBox(QtGui.QMainWindow):
                     tt.daemon = True
                     tt.setName("ping")
                     tt.start()
-                    #self.textMesgThread.display(len(threading.enumerate()))
-                    #self.Channel.addItem("#test")
-                    #self.Channel.addItem("#shock-world")
-                    #self.Channel.addItem("#help")
 
-                    #thread.start_new_thread(self.whereMe,())
                 elif re.search(r"JOIN :",txt): pass
                     #sock.send("PRIVMSG %s :VERSION\n\r" % self.UserNick(recv_data))
                 elif re.search(r":VERSION ",txt):
@@ -345,6 +345,8 @@ class MessageBox(QtGui.QMainWindow):
   
    def privmsg(self,txt):
     ch = self.chan(txt)
+    if self.tab.indexOf(reviewEdit[ch]) != self.tab.currentIndex() :
+        self.tab.tabBar().setTabTextColor(self.tab.indexOf(reviewEdit[ch]), self.QColorRed)
     try:
      chars = txt
      u = UniversalDetector()
@@ -490,6 +492,8 @@ class MessageBox(QtGui.QMainWindow):
     self.tab.addTab(reviewEdit[u"%s" % ch], u"%s" % ch)
     sock.send('JOIN %s \n\r' % ch)
     
+   def tabChange(self):
+        self.tab.tabBar().setTabTextColor(self.tab.currentIndex(), self.QColorBlack)
 
 def threadNumber(): 
 
