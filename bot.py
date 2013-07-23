@@ -50,7 +50,7 @@ class MyThread(QtCore.QThread):
    def __init__(self, parent=None):
     QtCore.QThread.__init__(self, parent)
    def run(self):
-   	print self.ch
+   	#print self.ch
    	self.emit(QtCore.SIGNAL("mysignal(QString)"),self.ch)
 
 
@@ -66,6 +66,7 @@ class MessageBox(QtGui.QMainWindow):
         self.defaultEncoding = defaultEncoding
         self.QColorRed = QtGui.QColor(255, 0, 0) 
         self.QColorBlack = QtGui.QColor(0, 0, 0) 
+        self.onStart = True
 
 
         QtGui.QWidget.__init__(self, parent)
@@ -91,13 +92,11 @@ class MessageBox(QtGui.QMainWindow):
         self.textMesgThread = QtGui.QLCDNumber(self)
         self.textMesgThread.setGeometry(540, 10, 50, 20)
         self.textMesgThread.setSegmentStyle(QtGui.QLCDNumber.Flat)
-        #self.textMesgThread.setText(u'')
 
         self.nameMesgThread = QtGui.QListView(self)
         self.nameMesgThread.setGeometry(1470, 40, 120, 730)
         self.model = QtGui.QStandardItemModel(self.nameMesgThread)
         self.item = QtGui.QStandardItem()
-        #self.model.appendRow(self.item)
         self.nameMesgThread.setModel(self.model)
 
 #-------------------------------------------------------------
@@ -109,19 +108,6 @@ class MessageBox(QtGui.QMainWindow):
         reviewEdit["RAW"].setTextCursor(self.textCursor)
         
         self.tab.addTab(reviewEdit["RAW"],u"RAW")
-        
-
-#        reviewEdit["#shock-world"] = QtGui.QTextEdit()
-#        reviewEdit["#shock-world"].setReadOnly(True)
-#        self.tab.addTab(reviewEdit["#shock-world"], u"#shock-world")
-#
-#        reviewEdit["#help"] = QtGui.QTextEdit()
-#        reviewEdit["#help"].setReadOnly(True)
-#        self.tab.addTab(reviewEdit["#help"], u"#help")
-#
-#        reviewEdit["#test"] = QtGui.QTextEdit()
-#        reviewEdit["#test"].setReadOnly(True)
-#        self.tab.addTab(reviewEdit["#test"], u"#test")
 
 #-------------------------------------------------------------        
         self.serverAddr = QtGui.QLineEdit(self)
@@ -151,13 +137,6 @@ class MessageBox(QtGui.QMainWindow):
         self.sendText.setGeometry(10, 780, 1450, 20)
         self.sendText.setStatusTip(u'Текст:')
 
-        #self.Channel = QtGui.QComboBox(self)
-        #self.Channel.setGeometry(10, 780, 100, 20)
-        #self.Channel.setStatusTip(u'Каналы:')
-        #self.Channel.addItem("RAW")
-
-
-
         self.buttonConnect = QtGui.QPushButton(u'Соединиться', self)
         self.buttonConnect.setGeometry(600, 10, 120, 20)
         self.buttonConnect.setShortcut('Ctrl+Enter')
@@ -175,8 +154,6 @@ class MessageBox(QtGui.QMainWindow):
 
         self.buttonNp = QtGui.QPushButton(u'Now playing', self)
         self.buttonNp.setGeometry(1470, 10, 120, 20)
-        #self.buttonEnc.setShortcut("Return") 
-        #self.buttonEnc.setStatusTip('Отправить')
         self.thread = MyThread()
 
 
@@ -205,21 +182,14 @@ class MessageBox(QtGui.QMainWindow):
         t.start()
         if t.isDaemon() : 
             print "Daemon started"
-            
 
-        #thread.start_new_thread(self.recv_data,())
    def DisconnectFromServer(self):
            sock.send("QUIT :Going to hell\n\r")
            time.sleep(1)
-           #sock.close()
-           #thread.interrupt_main()
            reviewEdit["RAW"].append("Disconnecting")
-           self.threadLife = 0
-           
+           self.threadLife = 0         
            sock.close()
-           #sys.exit(app.exec_())
    def sendMessage(self):
-#        myNick = u"%s" % self.nick.text()
         myText = "%s" % self.sendText.text()
         ch = str(self.tab.tabText(self.tab.currentIndex())).encode("cp1251")
         if re.search(r"/me",myText): 
@@ -231,7 +201,6 @@ class MessageBox(QtGui.QMainWindow):
             sock.send("%s\n\r" % (myText.encode("cp1251")))
             reviewEdit[ch].append(u"%s> %s" % ("My",myText))
         elif re.search(r"\A/join ",myText):
-            #self.Channel.addItem(myText[5:])
             if not reviewEdit.has_key(myText[6:]) :
              reviewEdit[myText[6:]] = QtGui.QTextEdit()
              reviewEdit[myText[6:]].setReadOnly(True)
@@ -245,25 +214,20 @@ class MessageBox(QtGui.QMainWindow):
           del reviewEdit[myText[6:]]
           sock.send("%s\n\r" % (myText[1:].encode(self.defaultEncoding)))
         elif ch == "RAW": #NOT WORK
-         sock.send("%s\n\r" % (myText.encode(self.defaultEncoding)))
-         reviewEdit[ch].append(u"%s> %s" % ("My",myText))
+          sock.send("%s\n\r" % (myText.encode(self.defaultEncoding)))
+          reviewEdit[ch].append(u"%s> %s" % ("My",myText))
         elif ch != "RAW":
-         #ch = str(self.Channel.currentText()).encode("cp1251")
-         sock.send("PRIVMSG %s :%s\n\r" % (ch,myText.encode(self.defaultEncoding)))
-         reviewEdit[ch].append("<font color=red>[%s]</font> <font color=blue>%s </font>:<font color=gray>%s</font>" % (time.strftime("%H:%M:%S"),self.nick.text(),myText))
-         #reviewEdit.append(u"%s> %s" % ("My",myText))
+          sock.send("PRIVMSG %s :%s\n\r" % (ch,myText.encode(self.defaultEncoding)))
+          reviewEdit[ch].append("<font color=red>[%s]</font> <font color=blue>%s </font>:<font color=gray>%s</font>" % (time.strftime("%H:%M:%S"),self.nick.text(),myText))
         self.sendText.setText("")
-        #print self.Channel.currentText()
 
 
 
    def recv_data(self):
         resData = ""
-        #cur = reviewEdit.textCursor()
         while self.threadLife:
             try:
                 recv_data = sock.recv(4096)
-                #print "len of data: ",len(recv_data)
             except:
 #Handle the case when server process terminates
                 reviewEdit["RAW"].append("Server closed connection, thread exiting.")
@@ -282,22 +246,24 @@ class MessageBox(QtGui.QMainWindow):
                 tt.daemon = True
                 tt.setName("Data process")
                 tt.start()
-                #self.textMesgThread.display(len(threading.enumerate()))
 
    def worker(self,txt):
                 if re.search(r"\APING :",txt):
                     #print "Received ping: ", recv_data[:-2]
                     sock.send(u"%s\n\r" % (txt.replace("PING","PONG")))
                 elif txt[-5:-2] == ("+iw"):
+                    self.onStart = False
                     print "JOIN: "
-                    print txt
+                    charset = self.DetectEncoding(txt)
+                    for x in txt.split("\r\n") :
+                        if x != "" :
+                            reviewEdit["RAW"].append("<font color=red>[%s] </font>%s" % (time.strftime("%H:%M:%S"),x.decode(charset)))
+
                     for x in self.channels:
                         setattr(self.thread,"ch",x)
                         self.thread.start()
                         time.sleep(1)
                     reviewEdit["RAW"].append("Connected")
-                    #sock.send('WHOIS %s \n\r' % self.nick.text())
-                    #thread.start_new_thread(self.send_ping,())
                     tt = threading.Thread(target=self.send_ping, args=())
                     tt.daemon = True
                     tt.setName("ping")
@@ -307,9 +273,9 @@ class MessageBox(QtGui.QMainWindow):
                     #sock.send("PRIVMSG %s :VERSION\n\r" % self.UserNick(recv_data))
                 elif re.search(r":VERSION ",txt):
                     indx = txt.rfind("VERSION")
-                    #print indx
-                    #print recv_data[indx:-3]
-                    #reviewEdit["RAW"].append("<font color=red>>>></font>%s :%s" % (self.UserNick(txt),txt[indx:-3].decode("cp1251")))
+                    print indx
+                    print recv_data[indx:-3]
+                    reviewEdit["RAW"].append("<font color=red>>>></font>%s :%s" % (self.UserNick(txt),txt[indx:-3].decode("cp1251")))
                 elif re.search(r" KICK #",txt):
                     p = re.compile(r"( [a-zA-Z0-9].*) :")
                     txt2 = p.findall(txt)[0]
@@ -326,7 +292,6 @@ class MessageBox(QtGui.QMainWindow):
                 elif re.search(r"VERSION",txt):
                     #reviewEdit.append(repr(recv_data.decode("cp1251")))
                     sock.send("NOTICE %s :VERSION Simple bot writen on python 0.3\n\r" % self.UserNick(txt))
-#                    thread.start_new_thread(self.send_data,())
                 elif re.search(r"NICK",txt):
                     if self.UserNick == self.nick.text():
                         indx = txt.rfind("NICK") + 6
@@ -340,60 +305,58 @@ class MessageBox(QtGui.QMainWindow):
                     tt.daemon = True
                     tt.setName("privmsg")
                     tt.start()
+                
+                elif re.search(r"NOTICE",txt):
+                    for x in txt.split("\r\n") :
+                        if x != "" :
+                            charset = self.DetectEncoding(txt)
+                            ch = "RAW"
+                            
+                            if not self.onStart : 
+                                nck = self.UserNick(x)
+                                ch = re.compile('NOTICE (#?[\w\-]+) :').search(x).group(1)
+                                indx = x.find("NOTICE") + len(ch) + 7
+                            else : 
+                                nck = ""
+                                indx = 0 #x.find(":***")
+
+                            self.changeColor(ch)
+                            reviewEdit["RAW"].append("<font color=red>[%s] </font><font color=blue>%s</font> %s<font color=green> (%s)</font>" % (time.strftime("%H:%M:%S"),nck,x[indx:].decode(charset),charset))
+
                 else : 
                     print "Received data: ", txt[:-2].decode(self.defaultEncoding).encode("utf-8")
   
    def privmsg(self,txt):
     ch = self.chan(txt)
-    if self.tab.indexOf(reviewEdit[ch]) != self.tab.currentIndex() :
-        self.tab.tabBar().setTabTextColor(self.tab.indexOf(reviewEdit[ch]), self.QColorRed)
+    nck = self.UserNick(txt)
+    if ch[0] != "#" : 
+    	print ch,"--->",nck
+    	if not reviewEdit.has_key(nck) : 
+            setattr(self.thread,"ch",nck)
+            self.thread.start()
+            #time.sleep(1)
+            
+    
     try:
-     chars = txt
-     u = UniversalDetector()
-     u.feed(chars)
-     u.close()
-     result = u.result
-     if result['encoding']:
-       if result['encoding'] == "ISO-8859-2": charset = "cp1251"
-       elif result['encoding'] == "ascii": charset = "utf-8"
-       elif result['encoding'] == "utf8": charset = "utf-8"
-       elif result['encoding'] == "windows-1251": charset = "cp1251"
-       elif re.search(r"\AISO-88",result['encoding']): charset = "cp1251"
-       elif re.search(r"\Awindows",result['encoding']): charset = "cp1251"
-       elif result['encoding'] == "MacCyrillic": charset = "cp1251"
-       else : charset = result['encoding']           
-      #print charset
-     
-     #print "->|%s|<-" % ch
+     charset = self.DetectEncoding(txt)    
+     print charset
      indx = txt.rfind("PRIVMSG") + len(ch) + 8
-
      if IMAGE_RE.search(txt): 
         tt = threading.Thread(target=self.link, args=(txt,ch,indx,charset,))
         tt.daemon = False
         tt.setName("image")
         tt.start()
      else : 
-        nck = self.UserNick(txt)
+        if ch[0] != "#" : 
+            ch = nck  
         txt = self.txtReplace(txt)
+        self.changeColor(ch)
         reviewEdit[ch].append("<font color=red>[%s] </font><font color=blue>%s</font>%s<font color=green> (%s)</font>" % (time.strftime("%H:%M:%S"),nck,txt[indx:].decode(charset),charset))
-        #reviewEdit[ch].setReadOnly(False)
-        #print reviewEdit[ch].isReadOnly()
-        #cur = reviewEdit[ch].textCursor()
-        #print cur.position()
-        #reviewEdit[ch].moveCursor(QtGui.QTextCursor.End)
-        #print cur.position()
-    #    cur.movePosition(QtGui.QTextCursor.NextCharacter,mode=QtGui.QTextCursor.MoveAnchor, n=2)
-    #    reviewEdit[ch].setTextCursor(cur)
-    #    print cur.position()
-      #reviewEdit.setTextCursor(cur)
      
-     if re.search(r"%s" % self.nick.text(),txt):
-       sock.send("PRIVMSG %s :what? \n\r" % self.UserNick(txt))
-       sock.send("NOTICE %s :what? \n\r" % self.UserNick(txt))
+     if re.search(r"%s" % self.nick.text(),txt): pass
+       #sock.send("PRIVMSG %s :what? \n\r" % self.UserNick(txt))
+       #sock.send("NOTICE %s :what? \n\r" % self.UserNick(txt))
     except : 
-      #print "Received data: ", txt[:-2].decode("cp1251").encode("utf-8")
-      #if re.search(r"http:\/\/[a-zA-Z0-9.-].+?(\.(jpg|png|gif))",txt): print "link"
-      #print "link: %s" % self.link(txt)
       txt = self.txtReplace(txt)
       reviewEdit["RAW"].append("<font color=red>[%s] </font><font color=purple>%s</font> <font color=blue>%s</font> %s" % (time.strftime("%H:%M:%S"),ch,self.UserNick(txt),txt[indx:]))
       reviewEdit[ch].append("<font color=red>[%s] </font><font color=blue>%s</font>%s<font color=green> (%s)</font>" % (time.strftime("%H:%M:%S"),self.UserNick(txt),txt[indx:].decode(self.defaultEncoding),"error"))
@@ -419,37 +382,15 @@ class MessageBox(QtGui.QMainWindow):
         mimetype = info.getmaintype()
         if mimetype == "image" :
             imgSrc = res.read()
-            #img = Image.open(StringIO.StringIO(imgSrc))
             image_64 = base64.encodestring(imgSrc)
             image = "%s;base64,%s" % (info.gettype(),image_64)
-            #path = tempfile.mkstemp(suffix = url.path.replace("/","_"), prefix = '%d_' % x)[1]
-            #img.save(path)
-            #print path," base64->%s<-" % image_64
             nck = self.UserNick(txt)
             txt = self.txtReplace(txt)
+            self.changeColor(ch)
             reviewEdit[ch].append("<img src=\"data:%s\"> <br /><font color=red>[%s] </font><font color=blue>%s</font>%s <font color=green> (%s)</font>" % (image,time.strftime("%H:%M:%S"),nck,txt[indx:].decode(charset),charset))
-            #cur = reviewEdit[ch].textCursor()
-            #cur.movePosition(QtGui.QTextCursor.End)
-            #reviewEdit[ch].setTextCursor(cur)
-            #print cur.position()
         else : pass
 
    def txtReplace(self,txt):
-    # txt = txt.replace("\r\n","")
-    # txt = txt.replace("&","&amp;")
-    # txt = txt.replace('<',"&lt;")
-    # txt = txt.replace(">","&gt;") 
-    # txt = txt.replace('"',"&quot;")
-    # ##txt = txt.replace(" ","&nbsp;")
-    # txt = txt.replace("®","&reg;")
-    # txt = txt.replace("£","&pound;")
-    # txt = txt.replace("§","&sect;")
-    # txt = txt.replace("©","&copy")
-    # txt = txt.replace("²","&sup2;")
-    # txt = txt.replace("³","&sup3;")
-    # txt = txt.replace("»","&raquo;")
-    # txt = txt.replace("«","&laquo;")
-    # return txt
     return cgi.escape(txt)
 
    def chan(self, line):
@@ -466,16 +407,25 @@ class MessageBox(QtGui.QMainWindow):
      time.sleep(10)
      sock.send("PING :LAG%s\n\r" % time.time())
      
-
+   def DetectEncoding(self,txt):
+     chars = txt
+     u = UniversalDetector()
+     u.feed(chars)
+     u.close()
+     result = u.result
+     if result['encoding']:
+       if result['encoding'] == "ISO-8859-2": charset = "cp1251"
+       elif result['encoding'] == "ascii": charset = "utf-8"
+       elif result['encoding'] == "utf8": charset = "utf-8"
+       elif result['encoding'] == "windows-1251": charset = "cp1251"
+       elif re.search(r"\AISO-88",result['encoding']): charset = "cp1251"
+       elif re.search(r"\Awindows",result['encoding']): charset = "cp1251"
+       elif result['encoding'] == "MacCyrillic": charset = "cp1251"
+       else : charset = result['encoding']
+     return charset
    def whereMe(self):
      time.sleep(30)
      sock.send('WHOIS %s \n\r' % self.nick.text())
-#    f = open(r"oleg")
-#    for line in f : 
-#     sock.send("PRIVMSG nybs : %s\n\r" % line.rstrip().decode("utf-8").encode("cp1251"))
-#     time.sleep(2)
-#    f.close()
-    #thread.interrupt_main()
    def NowPlay(self):
     try:
         np, charsw = command_np()
@@ -494,6 +444,9 @@ class MessageBox(QtGui.QMainWindow):
     
    def tabChange(self):
         self.tab.tabBar().setTabTextColor(self.tab.currentIndex(), self.QColorBlack)
+   def changeColor(self,ch) :
+        if self.tab.indexOf(reviewEdit[ch]) != self.tab.currentIndex() :
+                self.tab.tabBar().setTabTextColor(self.tab.indexOf(reviewEdit[ch]), self.QColorRed)
 
 def threadNumber(): 
 
