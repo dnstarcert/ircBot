@@ -317,7 +317,7 @@ class MessageBox(QtGui.QMainWindow):
                         nick = ""
                         indx = 0
 
-                    self.changeColor(channel)
+                    self.changeColor("RAW")
                     chat_box["RAW"].append("<font color=red>[%s] </font>\
                         <font color=blue>%s</font> %s<font color=green> \
                         (%s)</font>" % (time.strftime("%H:%M:%S"), nick,
@@ -331,7 +331,7 @@ class MessageBox(QtGui.QMainWindow):
         channel = self.get_channel(text)
         nick = self.get_nick(text)
         if channel[0] != "#": 
-    	    print channel, "--->", nick
+    	    #print channel, "--->", nick
     	    if not chat_box.has_key(nick): 
                 self.thread.ch = nick
                 self.thread.start()
