@@ -428,8 +428,8 @@ class MessageBox(QtGui.QMainWindow):
             elif result['encoding'] == "ascii": charset = "utf-8"
             elif result['encoding'] == "utf8": charset = "utf-8"
             elif result['encoding'] == "windows-1251": charset = "cp1251"
-            elif re.search(r"\AISO-88",result['encoding']): charset = "cp1251"
-            elif re.search(r"\Awindows",result['encoding']): charset = "cp1251"
+            elif result['encoding'].find("ISO-88") == 0: charset = "cp1251"
+            elif result['encoding'].find("windows") == 0: charset = "cp1251"
             elif result['encoding'] == "MacCyrillic": charset = "cp1251"
             else: charset = result['encoding']
         return charset
