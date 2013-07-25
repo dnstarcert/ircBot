@@ -38,6 +38,7 @@ sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 os.chdir(os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe()))))
 
 chat_box = {}
+cursor = {}
 
 CHANNEL_RE = re.compile('PRIVMSG (#?[\w\-]+) :')
 NICK_RE = re.compile(":([\w\-]+)!")
@@ -98,11 +99,11 @@ class MessageBox(QtGui.QMainWindow):
         self.nameMesgThread.setModel(self.model)
 
 #-------------------------------------------------------------
-        self.textCursor = QtGui.QTextCursor()
         chat_box["RAW"] = QtGui.QTextEdit()
+        cursor["RAW"] = QtGui.QTextCursor(chat_box["RAW"].document())
+        chat_box["RAW"].setTextCursor(cursor["RAW"])
         chat_box["RAW"].setTextInteractionFlags( QtCore.Qt.TextSelectableByMouse | QtCore.Qt.LinksAccessibleByMouse | QtCore.Qt.LinksAccessibleByKeyboard  )
         # print chat_box["RAW"].isReadOnly()
-        chat_box["RAW"].setTextCursor(self.textCursor)
         self.tab.addTab(chat_box["RAW"],u"RAW")
 
 #-------------------------------------------------------------        
@@ -190,17 +191,18 @@ class MessageBox(QtGui.QMainWindow):
         if re.search(r"/me",myText): 
             myText = "PRIVMSG %s :ACTION %s" % (channel, self.sendText.text())
             chat_box[channel].append(u"%s> %s" % ("My", myText.replace("/me", "")))
+            chat_box[channel].moveCursor(QtGui.QTextCursor.End)
             sock.send("%s\n\r" % (myText.encode("cp1251").replace("/me", "")))
         elif re.search(r"\ANICK ", myText):
             self.nick.setText(myText[5:])
             sock.send("%s\n\r" % (myText.encode("cp1251")))
             chat_box[channel].append(u"%s> %s" % ("My", myText))
+            chat_box[channel].moveCursor(QtGui.QTextCursor.End)
         elif re.search(r"\A/join ", myText):
             if not chat_box.has_key(myText[6:]):
-                chat_box[myText[6:]] = QtGui.QTextEdit()
-                chat_box[myText[6:]].setReadOnly(True)
-                chat_box[myText[6:]].setTextCursor(self.textCursor)
-                self.tab.addTab(chat_box[myText[6:]], myText[6:])
+                self.thread.ch = myText[6:]
+                self.thread.start()
+                time.sleep(1)
                 sock.send("%s\n\r" % (myText[1:].encode(self.defaultEncoding))) 
         elif re.search(r"\A/part ", myText):
             if chat_box.has_key(myText[6:]):
@@ -211,12 +213,14 @@ class MessageBox(QtGui.QMainWindow):
         elif channel == "RAW": #NOT WORK
             sock.send("%s\n\r" % (myText.encode(self.defaultEncoding)))
             chat_box[channel].append(u"%s> %s" % ("My", myText))
+            chat_box[channel].moveCursor(QtGui.QTextCursor.End)
         elif channel != "RAW":
             sock.send("PRIVMSG %s :%s\n\r" \
                 % (channel, myText.encode(self.defaultEncoding)))
             chat_box[channel].append("<font color=red>[%s]</font> \
                 &lt;<font color=blue>%s</font>&gt; <font color=gray>%s</font>" \
                 % (time.strftime("%H:%M:%S"), self.nick.text(), myText))
+            chat_box[channel].moveCursor(QtGui.QTextCursor.End)
         self.sendText.setText("")
 
     def recv_data(self):
@@ -353,6 +357,8 @@ class MessageBox(QtGui.QMainWindow):
                 &lt;<font color=blue>%s</font>&gt; %s<font color=green> (%s)</font>" \
                 % (time.strftime("%H:%M:%S"), nick,
                     text[indx+2:].decode(charset), charset))
+            chat_box[channel].moveCursor(QtGui.QTextCursor.End)
+            #print cursor[channel].position()
             if re.search(r"%s" % self.nick.text(), text): pass
                 #sock.send("PRIVMSG %s :what? \n\r" % self.get_nick(text))
                 #sock.send("NOTICE %s :what? \n\r" % self.get_nick(text))
@@ -394,6 +400,7 @@ class MessageBox(QtGui.QMainWindow):
                     base64.encodestring(res.read()))
                 self.changeColor(channel)
                 chat_box[channel].append("<a href=\"%s\"><img src=\"data:%s\" /></a>" % (url, image))
+                #chat_box[channel].moveCursor(QtGui.QTextCursor.End)
 
     def escape_html(self, text):
         return cgi.escape(text)
@@ -447,11 +454,12 @@ class MessageBox(QtGui.QMainWindow):
     def create_rewed(self, channel):
         global chat_box
         chat_box[u"%s" % channel] = QtGui.QTextEdit()
+        cursor[u"%s" %   channel] = QtGui.QTextCursor(chat_box[u"%s" % channel].document())
+        chat_box[u"%s" % channel].setTextCursor(cursor[u"%s" % channel])
         chat_box[u"%s" % channel].setTextInteractionFlags( QtCore.Qt.TextSelectableByMouse | QtCore.Qt.LinksAccessibleByMouse | QtCore.Qt.LinksAccessibleByKeyboard  )
-        chat_box[u"%s" % channel].setTextCursor(self.textCursor)
         self.tab.addTab(chat_box[u"%s" % channel], u"%s" % channel)
         sock.send('JOIN %s \n\r' % channel)
-    
+
     def tabChange(self):
         self.tab.tabBar().setTabTextColor(self.tab.currentIndex(), self.QColorBlack)
 
