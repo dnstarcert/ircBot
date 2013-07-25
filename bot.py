@@ -202,7 +202,7 @@ class MessageBox(QtGui.QMainWindow):
             if not chat_box.has_key(myText[6:]):
                 self.thread.ch = myText[6:]
                 self.thread.start()
-                time.sleep(1)
+                #time.sleep(1)
                 sock.send("%s\n\r" % (myText[1:].encode(self.defaultEncoding))) 
         elif re.search(r"\A/part ", myText):
             if chat_box.has_key(myText[6:]):
