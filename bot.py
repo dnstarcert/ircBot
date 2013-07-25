@@ -384,22 +384,16 @@ class MessageBox(QtGui.QMainWindow):
     def link(self, text, channel, indx, charset):
         m = IMAGE_RE.findall(text)
         for x in xrange(len(m)):
-            print "url: %s" % m[x][0]
-            res = urllib2.urlopen(m[x][0])
+            url = m[x][0]
+            print "url: %s" % url
+            res = urllib2.urlopen(url)
             info = res.info()
             mimetype = info.getmaintype()
             if mimetype == "image":
-                imgSrc = res.read()
-                image_64 = base64.encodestring(imgSrc)
-                image = "%s;base64,%s" % (info.gettype(), image_64)
-                nick = self.get_nick(text)
-                text = self.escape_html(text)
+                image = "%s;base64,%s" % (info.gettype(),
+                    base64.encodestring(res.read()))
                 self.changeColor(channel)
-                chat_box[channel].append("<img src=\"data:%s\"> <br /><font \
-                    color=red>[%s] </font><font color=blue>%s</font>%s \
-                    <font color=green> (%s)</font>" \
-                    % (image, time.strftime("%H:%M:%S"), nick,
-                        text[indx:].decode(charset), charset))
+                chat_box[channel].append("<a href=\"%s\"><img src=\"data:%s\" /></a>" % (url, image))
 
     def escape_html(self, text):
         return cgi.escape(text)
