@@ -156,7 +156,7 @@ class MessageBox(QtGui.QMainWindow):
         self.connect(self.buttonConnect, QtCore.SIGNAL('clicked()'), self.connectToServer)
         self.connect(self.buttonDisconnect, QtCore.SIGNAL('clicked()'), self.DisconnectFromServer)
         self.connect(self.buttonEnc, QtCore.SIGNAL('clicked()'), self.sendMessage)
-        self.connect(self.buttonNp, QtCore.SIGNAL('clicked()'), self.NowPlay)
+        self.connect(self.buttonNp, QtCore.SIGNAL('clicked()'), self.now_playing)
         self.connect(self.thread, QtCore.SIGNAL("mysignal(QString)"),self.create_rewed, QtCore.Qt.QueuedConnection)
         self.connect(self.tab, QtCore.SIGNAL('currentChanged(int)'), self.tabChange)
 
@@ -285,7 +285,7 @@ class MessageBox(QtGui.QMainWindow):
                chat_box["RAW"].append("<font color=red>[%s] You were \
                 kicked from %s. Reason: %s</font>" \
                 % (time.strftime("%H:%M:%S"), channel, reason))
-        elif re.search(r"VERSION", text):
+        elif "VERSION" in text:
             #chat_box.append(repr(recv_data.decode("cp1251")))
             sock.send("NOTICE %s :VERSION Simple bot writen on python 0.3\n\r" % self.get_nick(text))
         elif "NICK" in text:
@@ -438,7 +438,7 @@ class MessageBox(QtGui.QMainWindow):
         time.sleep(30)
         sock.send('WHOIS %s \n\r' % self.nick.text())
 
-    def NowPlay(self):
+    def now_playing(self):
         try:
             np, charsw = command_np()
             channel = str(self.tab.tabText(self.tab.currentIndex())).encode("cp1251")
