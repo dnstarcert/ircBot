@@ -257,7 +257,7 @@ class MessageBox(QtGui.QMainWindow):
                         % (time.strftime("%H:%M:%S"), x.decode(charset)))
 
             for x in self.channels:
-                self.thread.ch = x
+                self.thread.ch = x.strip()
                 self.thread.start()
                 time.sleep(1)
             chat_box["RAW"].append("Connected")
@@ -396,11 +396,21 @@ class MessageBox(QtGui.QMainWindow):
             info = res.info()
             mimetype = info.getmaintype()
             if mimetype == "image":
+                img = Image.open(StringIO.StringIO(res.read()))
+                if img.size[0] > 1420 : 
+                    img.thumbnail((1420,img.size[1]),Image.ANTIALIAS)
+                output = StringIO.StringIO()
+                img.save(output,format=info.getsubtype())
+                contents = output.getvalue()
+                output.close()
+                obj = StringIO.StringIO(img.tostring())
                 image = "%s;base64,%s" % (info.gettype(),
-                    base64.encodestring(res.read()))
+                    base64.encodestring(contents))
+                #print image
+
                 self.changeColor(channel)
                 chat_box[channel].append("<a href=\"%s\"><img src=\"data:%s\" /></a>" % (url, image))
-                #chat_box[channel].moveCursor(QtGui.QTextCursor.End)
+                ##chat_box[channel].moveCursor(QtGui.QTextCursor.End)
 
     def escape_html(self, text):
         return cgi.escape(text)
