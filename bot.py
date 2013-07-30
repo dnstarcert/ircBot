@@ -399,17 +399,20 @@ class MessageBox(QtGui.QMainWindow):
                 img = Image.open(StringIO.StringIO(res.read()))
                 if img.size[0] > 1420 : 
                     img.thumbnail((1420,img.size[1]),Image.ANTIALIAS)
-                output = StringIO.StringIO()
-                img.save(output,format=info.getsubtype())
-                contents = output.getvalue()
-                output.close()
-                obj = StringIO.StringIO(img.tostring())
-                image = "%s;base64,%s" % (info.gettype(),
-                    base64.encodestring(contents))
+                #output = StringIO.StringIO()
+                path = tempfile.mkstemp(suffix = url.replace("/","_"), prefix = '%d_' % x)[1]
+                img.save(path) 
+                print path
+                #img.save(output,format=info.getsubtype())
+                #contents = output.getvalue()
+                #output.close()
+                #obj = StringIO.StringIO(img.tostring())
+                #image = "%s;base64,%s" % (info.gettype(),
+                #    base64.encodestring(contents))
                 #print image
 
                 self.changeColor(channel)
-                chat_box[channel].append("<a href=\"%s\"><img src=\"data:%s\" /></a>" % (url, image))
+                chat_box[channel].append("<a href=\"%s\"><img src=\"%s\" /></a>" % (url, path))
                 ##chat_box[channel].moveCursor(QtGui.QTextCursor.End)
 
     def escape_html(self, text):
