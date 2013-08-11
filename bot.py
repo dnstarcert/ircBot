@@ -44,7 +44,7 @@ cursor = {}
 CHANNEL_RE = re.compile('PRIVMSG (#?[\w\-]+) :')
 NICK_RE = re.compile(":([\w\-]+)!")
 IMAGE_RE = re.compile(r"((ht|f)tps?:\/\/[\w\.-]+\/[\w\.-\/]+\.(jpg|png|gif|bmp))")
-
+HTTP_RE  = re.compile(r"((ht|f)tps?:\/\/[\w\.-]+\/[\w\.-\/]+\.*)")
 class MyThread(QtCore.QThread):
 
     def __init__(self, parent=None):
@@ -173,6 +173,7 @@ class MessageBox(QtGui.QMainWindow):
             cur = obj.textCursor()
             cur.movePosition(13) 
             obj.setTextCursor(cur)
+            time.sleep(0.3)
         except : pass
 
 
@@ -359,6 +360,15 @@ class MessageBox(QtGui.QMainWindow):
                 t.daemon = False
                 t.setName("image")
                 t.start()
+            
+            elif HTTP_RE.search(text):
+            	t = threading.Thread(target=self.http_title,
+                    args=(text, channel,))
+                t.daemon = False
+                t.setName("http")
+                t.start()
+            	#self.http_title(text, channel)
+
             elif channel[0] != "#": 
                     channel = nick  
             text = self.escape_html(text)
@@ -421,7 +431,31 @@ class MessageBox(QtGui.QMainWindow):
 
                 self.changeColor(channel)
                 chat_box[channel].append("<a href=\"%s\"><img src=\"%s\" /></a>" % (url, path))
-
+    
+    def http_title(self, text, channel):
+    	print text
+        m = HTTP_RE.findall(text)
+        for x in xrange(len(m)):
+            url = m[x][0]
+            print "url: %s" % url
+            res = urllib2.urlopen(url)
+            info = res.info()
+            mimetype = info.getmaintype()
+            ext = info.getsubtype()
+            if mimetype != "image" :
+                sech = re.compile(r"<title>([0-9a-zA-Zа-яА-ЯёЁ].*)</title>").findall(res.read())
+                self.changeColor(channel)
+                charset = self.detect_encoding(sech[0])
+                chat_box[channel].append("<a href=\"%s\">%s</a>" % (url, sech[0].decode("utf-8")))
+            elif mimetype == "image":
+                img = Image.open(StringIO.StringIO(res.read()))
+                if img.size[0] > 1420 : 
+                    img.thumbnail((1420,img.size[1]),Image.ANTIALIAS)
+                path = tempfile.mkstemp(suffix = url.replace("/","_"), prefix = '%d_' % x)[1]
+                img.save("path.%s" % ext) 
+                self.changeColor(channel)
+                chat_box[channel].append("<a href=\"%s\"><img src=\"%s\" /></a>" % (url, "path.%s" % ext))
+    
     def escape_html(self, text):
         return cgi.escape(text)
 
