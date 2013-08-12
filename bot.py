@@ -44,7 +44,7 @@ cursor = {}
 CHANNEL_RE = re.compile('PRIVMSG (#?[\w\-]+) :')
 NICK_RE = re.compile(":([\w\-]+)!")
 IMAGE_RE = re.compile(r"((ht|f)tps?:\/\/[\w\.-]+\/[\w\.-\/]+\.(jpg|png|gif|bmp))")
-HTTP_RE  = re.compile(r"((ht|f)tps?:\/\/[\w\.-]+\/[\w\.-\/]+\.*)")
+HTTP_RE  = re.compile(r"(http:\/\/[^\s]+)")
 class MyThread(QtCore.QThread):
 
     def __init__(self, parent=None):
@@ -101,8 +101,8 @@ class MessageBox(QtGui.QMainWindow):
 
 #-------------------------------------------------------------
         chat_box["RAW"] = QtGui.QTextEdit()
-        cursor["RAW"] = QtGui.QTextCursor(chat_box["RAW"].document())
-        chat_box["RAW"].setTextCursor(cursor["RAW"])
+        #cursor["RAW"] = QtGui.QTextCursor(chat_box["RAW"].document())
+        #chat_box["RAW"].setTextCursor(cursor["RAW"])
         chat_box["RAW"].setTextInteractionFlags( QtCore.Qt.TextSelectableByMouse | QtCore.Qt.LinksAccessibleByMouse | QtCore.Qt.LinksAccessibleByKeyboard  )
         # print chat_box["RAW"].isReadOnly()
         self.tab.addTab(chat_box["RAW"],u"RAW")
@@ -407,6 +407,7 @@ class MessageBox(QtGui.QMainWindow):
 
     def link(self, text, channel, indx, charset):
         m = IMAGE_RE.findall(text)
+
         for x in xrange(len(m)):
             url = m[x][0]
             print "url: %s" % url
@@ -431,30 +432,39 @@ class MessageBox(QtGui.QMainWindow):
 
                 self.changeColor(channel)
                 chat_box[channel].append("<a href=\"%s\"><img src=\"%s\" /></a>" % (url, path))
+                res.close()
     
     def http_title(self, text, channel):
-    	print text
+        #print text
+    	
         m = HTTP_RE.findall(text)
+        #print "m=%s" % m
         for x in xrange(len(m)):
-            url = m[x][0]
-            print "url: %s" % url
-            res = urllib2.urlopen(url)
-            info = res.info()
-            mimetype = info.getmaintype()
-            ext = info.getsubtype()
-            if mimetype != "image" :
-                sech = re.compile(r"<title>([0-9a-zA-Zа-яА-ЯёЁ].*)</title>").findall(res.read())
-                self.changeColor(channel)
-                charset = self.detect_encoding(sech[0])
-                chat_box[channel].append("<a href=\"%s\">%s</a>" % (url, sech[0].decode("utf-8")))
-            elif mimetype == "image":
-                img = Image.open(StringIO.StringIO(res.read()))
-                if img.size[0] > 1420 : 
-                    img.thumbnail((1420,img.size[1]),Image.ANTIALIAS)
-                path = tempfile.mkstemp(suffix = url.replace("/","_"), prefix = '%d_' % x)[1]
-                img.save("path.%s" % ext) 
-                self.changeColor(channel)
-                chat_box[channel].append("<a href=\"%s\"><img src=\"%s\" /></a>" % (url, "path.%s" % ext))
+            try:
+                url = m[x]
+                print "url: %s" % url
+                res = urllib2.urlopen(url)
+                info = res.info()
+                mimetype = info.getmaintype()
+                ext = info.getsubtype()
+                if mimetype != "image" :
+                    sech = re.compile(r"<title>([0-9a-zA-Zа-яА-ЯёЁ].*)</title>").findall(res.read())
+                    self.changeColor(channel)
+                    charset = self.detect_encoding(sech[0])
+                    chat_box[channel].append("<a href=\"%s\">%s</a>" % (url, sech[0].decode("utf-8")))
+                    res.close()
+                elif mimetype == "image":
+                    img = Image.open(StringIO.StringIO(res.read()))
+                    if img.size[0] > 1420 : 
+                        img.thumbnail((1420,img.size[1]),Image.ANTIALIAS)
+                    path = tempfile.mkstemp(suffix = url.replace("/","_"), prefix = '%d_' % x)[1]
+                    print path
+                    img.save("path.%s" % ext) 
+                    self.changeColor(channel)
+                    chat_box[channel].append("<a href=\"%s\"><img src=\"%s\" /></a>" % (url, "path.%s" % ext))
+                    res.close()
+            except : 
+                chat_box[channel].append("<a href=\"%s\">%s</a>" % (url, "404"))
     
     def escape_html(self, text):
         return cgi.escape(text)
@@ -508,8 +518,8 @@ class MessageBox(QtGui.QMainWindow):
     def create_rewed(self, channel):
         global chat_box,cursor
         chat_box[u"%s" % channel] = QtGui.QTextEdit()
-        cursor[u"%s" %   channel] = QtGui.QTextCursor(chat_box[u"%s" % channel].document())
-        chat_box[u"%s" % channel].setTextCursor(cursor[u"%s" % channel])
+        #cursor[u"%s" %   channel] = QtGui.QTextCursor(chat_box[u"%s" % channel].document())
+        #chat_box[u"%s" % channel].setTextCursor(cursor[u"%s" % channel])
         chat_box[u"%s" % channel].setTextInteractionFlags( QtCore.Qt.TextSelectableByMouse | QtCore.Qt.LinksAccessibleByMouse | QtCore.Qt.LinksAccessibleByKeyboard  )
         self.tab.addTab(chat_box[u"%s" % channel], u"%s" % channel)
         self.connect(chat_box[u"%s" % channel], QtCore.SIGNAL('textChanged()'), self.textChanged)
