@@ -459,9 +459,9 @@ class MessageBox(QtGui.QMainWindow):
                         img.thumbnail((1420,img.size[1]),Image.ANTIALIAS)
                     path = tempfile.mkstemp(suffix = url.replace("/","_"), prefix = '%d_' % x)[1]
                     print path
-                    img.save("path.%s" % ext) 
+                    img.save("%s.%s" % (path,ext))
                     self.changeColor(channel)
-                    chat_box[channel].append("<a href=\"%s\"><img src=\"%s\" /></a>" % (url, "path.%s" % ext))
+                    chat_box[channel].append("<a href=\"%s\"><img src=\"%s\" /></a>" % (url, "%s.%s" % (path,ext)))
                     res.close()
             except : 
                 chat_box[channel].append("<a href=\"%s\">%s</a>" % (url, "404"))
