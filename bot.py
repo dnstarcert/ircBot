@@ -42,7 +42,7 @@ cursor = {}
 
 
 CHANNEL_RE = re.compile('PRIVMSG (#?[\w\-]+) :')
-NICK_RE = re.compile(":([\w\-]+)!")
+NICK_RE = re.compile(":([\w\-\[\]\|]+)!")
 IMAGE_RE = re.compile(r"((ht|f)tps?:\/\/[\w\.-]+\/[\w\.-\/]+\.(jpg|png|gif|bmp))")
 HTTP_RE  = re.compile(r"(http:\/\/[^\s]+)")
 class MyThread(QtCore.QThread):
@@ -173,7 +173,7 @@ class MessageBox(QtGui.QMainWindow):
             cur = obj.textCursor()
             cur.movePosition(13) 
             obj.setTextCursor(cur)
-            time.sleep(0.3)
+            time.sleep(0.1)
         except : pass
 
 
@@ -442,16 +442,17 @@ class MessageBox(QtGui.QMainWindow):
         for x in xrange(len(m)):
             try:
                 url = m[x]
-                print "url: %s" % url
+                #print "url: %s" % url
                 res = urllib2.urlopen(url)
                 info = res.info()
+                #print info
                 mimetype = info.getmaintype()
                 ext = info.getsubtype()
                 if mimetype != "image" :
                     sech = re.compile(r"<title>([0-9a-zA-Zа-яА-ЯёЁ].*)</title>").findall(res.read())
                     self.changeColor(channel)
                     charset = self.detect_encoding(sech[0])
-                    chat_box[channel].append("<a href=\"%s\">%s</a>" % (url, sech[0].decode("utf-8")))
+                    chat_box[channel].append("<a href=\"%s\">%s</a>" % (url, sech[0].decode(charset)))
                     res.close()
                 elif mimetype == "image":
                     img = Image.open(StringIO.StringIO(res.read()))
