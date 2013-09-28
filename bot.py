@@ -27,12 +27,14 @@ import time
 import re
 import ConfigParser
 import Queue
-import urllib2, base64
+import base64,urllib2
+from urllib2 import Request, urlopen, URLError
 from chardet.universaldetector import UniversalDetector
 from PIL import Image
 from urlparse import urlparse
 from PyQt4 import QtGui, QtCore
 from np import *
+from cookielib import CookieJar
 
 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 os.chdir(os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe()))))
@@ -236,7 +238,7 @@ class MessageBox(QtGui.QMainWindow):
 
     def recv_data(self):
         while self.threadLife:
-            try:
+            try: 
                 recv_data = sock.recv(4096)
             except:
                 #Handle the case when server process terminates
@@ -256,9 +258,10 @@ class MessageBox(QtGui.QMainWindow):
                 t.start()
 
     def worker(self, text):
+
         if text.find("PING :") == 0:
             sock.send(u"%s\n\r" % (text.replace("PING", "PONG")))
-        elif text[-5:-2] == "+iw":
+        elif text.find("Global Users:") > 0 :
             self.onStart = False
             #print "JOIN: "
             charset = self.detect_encoding(text)
@@ -436,23 +439,31 @@ class MessageBox(QtGui.QMainWindow):
     
     def http_title(self, text, channel):
         #print text
-    	
+    	headers = {'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:23.0) Gecko/20100101 Firefox/23.0'}
         m = HTTP_RE.findall(text)
         #print "m=%s" % m
         for x in xrange(len(m)):
             try:
                 url = m[x]
                 #print "url: %s" % url
-                res = urllib2.urlopen(url)
+                request = urllib2.Request(url, None, headers)
+                res = urllib2.urlopen(request)
+                #print res.headers
                 info = res.info()
-                #print info
+                print info
                 mimetype = info.getmaintype()
                 ext = info.getsubtype()
-                if mimetype != "image" :
-                    sech = re.compile(r"<title>([0-9a-zA-Zа-яА-ЯёЁ].*)</title>").findall(res.read())
+                if mimetype != "image" and mimetype == "text" :
+                    sech = re.compile(r"<title>([\s\w\S\n]*)<\/title>").findall(res.read())
                     self.changeColor(channel)
                     charset = self.detect_encoding(sech[0])
-                    chat_box[channel].append("<a href=\"%s\">%s</a>" % (url, sech[0].decode(charset)))
+                    text = sech[0].decode(charset).replace("\n","").replace("\r","")
+                    color = re.compile(r'([0-9]{1,2})')
+                    text = color.sub("",text)
+                    if len(text) > 300 : text = text[:300]
+                    chat_box[channel].append("<a href=\"%s\">%s</a>" % (url, text))
+                    if channel == "#trollsquad" or channel == "#test" : sock.send("PRIVMSG %s :12%s\n\r" \
+                % (channel, text.encode("cp1251")))
                     res.close()
                 elif mimetype == "image":
                     img = Image.open(StringIO.StringIO(res.read()))
@@ -464,8 +475,16 @@ class MessageBox(QtGui.QMainWindow):
                     self.changeColor(channel)
                     chat_box[channel].append("<a href=\"%s\"><img src=\"%s\" /></a>" % (url, "%s.%s" % (path,ext)))
                     res.close()
-            except : 
-                chat_box[channel].append("<a href=\"%s\">%s</a>" % (url, "404"))
+            except URLError, e: 
+            	if hasattr(e, 'reason'):
+                    print 'We failed to reach a server.'
+                    print 'Reason: ', e.reason
+                    chat_box[channel].append("We failed to reach a server.\nReason: %s " % e.reason)
+                elif hasattr(e, 'code'):
+                    print 'The server couldn\'t fulfill the request.'
+                    print 'Error code: ', e.code
+                    chat_box[channel].append("The server couldn\'t fulfill the request.\nError code: %s " % e.code)
+                else: chat_box[channel].append("<a href=\"%s\">%s</a>" % (url, "404"))
     
     def escape_html(self, text):
         return cgi.escape(text)
@@ -485,20 +504,22 @@ class MessageBox(QtGui.QMainWindow):
             sock.send("PING :LAG%s\n\r" % time.time())
      
     def detect_encoding(self, line):
-        u = UniversalDetector()
-        u.feed(line)
-        u.close()
-        result = u.result
-        if result['encoding']:
-            if result['encoding'] == "ISO-8859-2": charset = "cp1251"
-            elif result['encoding'] == "ascii": charset = "utf-8"
-            elif result['encoding'] == "utf8": charset = "utf-8"
-            elif result['encoding'] == "windows-1251": charset = "cp1251"
-            elif result['encoding'].find("ISO-88") == 0: charset = "cp1251"
-            elif result['encoding'].find("windows") == 0: charset = "cp1251"
-            elif result['encoding'] == "MacCyrillic": charset = "cp1251"
-            else: charset = result['encoding']
-        return charset
+        try:
+            u = UniversalDetector()
+            u.feed(line)
+            u.close()
+            result = u.result
+            if result['encoding']:
+                if result['encoding'] == "ISO-8859-2": charset = "cp1251"
+                elif result['encoding'] == "ascii": charset = "utf-8"
+                elif result['encoding'] == "utf8": charset = "utf-8"
+                elif result['encoding'] == "windows-1251": charset = "cp1251"
+                elif result['encoding'].find("ISO-88") == 0: charset = "cp1251"
+                elif result['encoding'].find("windows") == 0: charset = "cp1251"
+                elif result['encoding'] == "MacCyrillic": charset = "cp1251"
+                else: charset = result['encoding']
+            return charset
+        except: return "utf-8"
 
     def where_am_i(self):
         time.sleep(30)
@@ -517,14 +538,16 @@ class MessageBox(QtGui.QMainWindow):
             pass
 
     def create_rewed(self, channel):
-        global chat_box,cursor
-        chat_box[u"%s" % channel] = QtGui.QTextEdit()
-        #cursor[u"%s" %   channel] = QtGui.QTextCursor(chat_box[u"%s" % channel].document())
-        #chat_box[u"%s" % channel].setTextCursor(cursor[u"%s" % channel])
-        chat_box[u"%s" % channel].setTextInteractionFlags( QtCore.Qt.TextSelectableByMouse | QtCore.Qt.LinksAccessibleByMouse | QtCore.Qt.LinksAccessibleByKeyboard  )
-        self.tab.addTab(chat_box[u"%s" % channel], u"%s" % channel)
-        self.connect(chat_box[u"%s" % channel], QtCore.SIGNAL('textChanged()'), self.textChanged)
-        sock.send('JOIN %s \n\r' % channel)
+        try :
+            global chat_box,cursor
+            chat_box[u"%s" % channel] = QtGui.QTextEdit()
+            #cursor[u"%s" %   channel] = QtGui.QTextCursor(chat_box[u"%s" % channel].document())
+            #chat_box[u"%s" % channel].setTextCursor(cursor[u"%s" % channel])
+            chat_box[u"%s" % channel].setTextInteractionFlags( QtCore.Qt.TextSelectableByMouse | QtCore.Qt.LinksAccessibleByMouse | QtCore.Qt.LinksAccessibleByKeyboard  )
+            self.tab.addTab(chat_box[u"%s" % channel], u"%s" % channel)
+            self.connect(chat_box[u"%s" % channel], QtCore.SIGNAL('textChanged()'), self.textChanged)
+            sock.send('JOIN %s \n\r' % channel)
+        except : pass
 
 
     def tabChange(self):
