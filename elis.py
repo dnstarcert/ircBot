@@ -205,8 +205,8 @@ class MyDaemon(Daemon):
                         res.close()
                     elif mimetype == "image":
                         img = Image.open(StringIO.StringIO(res.read()))
-                        imagePath = "%s/images/%s" % (path,url.path.replace("/","_")) 
-                        img.save(path) 
+                        imagePath = "%s/images/%s" % (path,url.replace("/","_")) 
+                        img.save("%s.%s" % (imagePath,ext))
                         res.close()
 
 
