@@ -16,11 +16,11 @@
 #
 #bugzilla http://bugzilla.gendalf.info/buglist.cgi?product=irc%20bot&component=all&resolution=---&list_id=2
 #
-
+#db pass: O*%.:^8oF#]u=%z
 
 import socket
 import threading
-import sys, inspect, os, tempfile,re
+import sys, inspect, os, tempfile,re,traceback
 import os.path
 import base64,urllib2
 from urllib2 import Request, urlopen, URLError
@@ -31,15 +31,29 @@ import time
 from daemon import Daemon
 from PIL import Image
 import string, StringIO
+import MySQLdb
+from hashlib import md5,sha512
+import sqlite3
+
 
 #sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 os.chdir(os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe()))))
 threadLife = True
 path = os.path.abspath(os.path.dirname(__file__))
 CHANNEL_RE = re.compile('PRIVMSG (#?[\w\-]+) :')
-NICK_RE = re.compile(":([\w\-\[\]\|]+)!")
-IMAGE_RE = re.compile(r"((ht|f)tps?:\/\/[\w\.-]+\/[\w\.-\/]+\.(jpg|png|gif|bmp))")
-HTTP_RE  = re.compile(r"(https?:\/\/[^\s]+)")
+NICK_RE = re.compile(":([\w\-\[\]\|`]+)!")
+IMAGE_RE = re.compile(r"((ht|f)tps?:\/\/[\w\.-]+\/[\w\.-\/^,]+\.(jpg|png|gif|bmp))")
+HTTP_RE  = re.compile(r"(https?:\/\/[^\s^,]+)")
+IGNORE_RE = re.compile(r"(https?:\/\/pictures.gendalf.info)")
+VIDEO_RE = re.compile(r"\'VIDEO_ID\': \"(?P<videoid>[\w\-\.]+?)\"")
+YOUTUBE_RE = re.compile(r"(https?:\/\/www.youtube.com)")
+
+basePath = "%s/%s" % (path,'logs.db')
+dbl = sqlite3.connect(basePath)
+base = dbl.cursor()
+base.execute('CREATE TABLE IF NOT EXISTS logs (id int(3) PRIMARY KEY NOT NULL UNIQUE,nick text,datetime timestamp,txt text)')
+dbl.commit()
+
 class MyDaemon(Daemon): 
     def run(self):
         #print "daemon started"
@@ -61,16 +75,21 @@ class MyDaemon(Daemon):
         config = ConfigParser.RawConfigParser()
         config.read('%s/bot.cfg' % path)
         defaultEncoding = config.get("bot", "encoding")
+        db_user=config.get("db", "user")
+        db_passwd=config.get("db", "passwd")
         channels = config.get("bot", "channels").split(",")
         onStart = True
-        t = threading.Thread(target=self.recv_data, args=(sock,onStart,my_nick,defaultEncoding,channels,))
+        db = MySQLdb.connect(host="localhost", user=db_user, passwd=db_passwd, db="pictures", charset='utf8')
+        sqlcursor = db.cursor()
+        
+        t = threading.Thread(target=self.recv_data, args=(sock,onStart,my_nick,defaultEncoding,channels,sqlcursor,db,))
         t.daemon = False
         t.setName("Read data")
         t.start()
         
     
     
-    def recv_data(self,sock,onStart,my_nick,defaultEncoding,channels):
+    def recv_data(self,sock,onStart,my_nick,defaultEncoding,channels,sqlcursor,db):
         global threadLife
         
         while threadLife : 
@@ -80,23 +99,25 @@ class MyDaemon(Daemon):
                 threadLife = False
                 print "error"
                 sock.close()
+                db.close()
                 #self.run()
                 break
             if not recv_data:
                 threadLife = False
                 sock.close()
                 print "error"
+                db.close()
                 #self.run()
                 break
             else :
                 #print recv_data
                 #sys.stdout.write(recv_data)
-                t = threading.Thread(target=self.worker, args=(recv_data,onStart,sock,my_nick,defaultEncoding,channels,))
+                t = threading.Thread(target=self.worker, args=(recv_data,onStart,sock,my_nick,defaultEncoding,channels,sqlcursor,db,))
                 t.daemon = True
                 t.setName("Data process")
                 t.start()
     
-    def worker(self,text,onStart,sock,my_nick,defaultEncoding,channels):
+    def worker(self,text,onStart,sock,my_nick,defaultEncoding,channels,sqlcursor,db):
             #print text[:-2]
             if text.find("PING :") == 0:
                 sock.send(u"%s\n\r" % (text.replace("PING", "PONG")))
@@ -107,6 +128,11 @@ class MyDaemon(Daemon):
                 for channel in channels :
                     sock.send('JOIN %s \n\r' % channel)
                 #print "Connected"
+                sock.send("PRIVMSG nickserv :IDENTIFY tuturuuu\n\r")
+                t = threading.Thread(target=self.informer,args=(sock,sqlcursor,db,defaultEncoding,))
+                t.daemon = True
+                t.setName("informer")
+                t.start()
                 t = threading.Thread(target=self.send_ping, args=(sock,))
                 t.daemon = True
                 t.setName("ping")
@@ -144,7 +170,7 @@ class MyDaemon(Daemon):
             elif "PONG" in text: pass
     
             elif "PRIVMSG" in text: 
-                t = threading.Thread(target=self.privmsg, args=(text,sock,))
+                t = threading.Thread(target=self.privmsg, args=(text,sock,sqlcursor,db,defaultEncoding,))
                 t.daemon = True
                 t.setName("privmsg")
                 t.start()
@@ -153,34 +179,59 @@ class MyDaemon(Daemon):
                 print ("Received data: ",
                     text[:-2].decode(defaultEncoding).encode("utf-8"))
     
-    def privmsg(self,text,sock):
+    def privmsg(self,text,sock,sqlcursor,db,defaultEncoding):
+        #global base,dbl
         channel = self.get_channel(text)
         nick = self.get_nick(text)
         indx = text.rfind("PRIVMSG") + len(channel) + 8
         color = re.compile(r'([0-9]{1,2})')
         text = color.sub("",text)
         text = text.replace("","")
+        charset = self.detect_encoding(text)
+        sql = """INSERT INTO logs(id,datetime,channel,nick,text) VALUES (NULL,NULL,'%s','%s','%s')""" % (channel,nick,text[indx+2:].decode(charset)) 
+        sqlcursor.execute(sql)
+        db.commit()
         #print "%s" % text[indx:]
         #HTTP_RE  = re.compile(r"(http:\/\/[^\s]+)")
         #print HTTP_RE.search(text)
         try:
-            if HTTP_RE.search(text):
-                #print "#%s %s:%s" % (channel,nick,text)
-                t = threading.Thread(target=self.http_title,args=(text, channel,sock,))
-                t.daemon = True
-                t.setName("http")
-                t.start()
-            if IMAGE_RE.search(text): 
+            if IMAGE_RE.search(text) and not IGNORE_RE.search(text): 
                 t = threading.Thread(target=self.link,
-                    args=(text,))
+                    args=(text,sqlcursor,db,sock,))
                 t.daemon = False
                 t.setName("image")
                 t.start()
+            elif HTTP_RE.search(text) and not IGNORE_RE.search(text):
+                #print "#%s %s:%s" % (channel,nick,text)
+                t = threading.Thread(target=self.http_title,args=(text, channel,sock,sqlcursor,db,defaultEncoding,))
+                t.daemon = True
+                t.setName("http")
+                t.start()
         except: pass
+        
+        if text[indx+2:][0:5] == "$last" : 
+            sqlcursor.execute(""" SELECT id,topic,link,change_data FROM torrent WHERE changed = '1' """)
+            ident = sqlcursor.fetchall()
+            if ident != None :
+                if channel == "#trollsquad" or channel == "#test" : 
+                    for x in xrange(len(ident)):
+                        sqlcursor.execute("""UPDATE torrent SET changed='0' WHERE id = '%s';""" % ident[x][0])
+                        db.commit()
+                        datetime = ident[x][3]
+                        title_text = ident[x][1].encode(defaultEncoding)
+                        title_link = ident[x][2]
+                        try :
+                            sock.send("PRIVMSG %s :Torrent %s changed. Link: 03%s %s ~desu~\n\r" % (channel,str(title_text),title_link,datetime))
+                        except :
+                            sock.send("PRIVMSG %s :Torrent changed. Link: 03%s %s ~desu~\n\r" % (channel,title_link,datetime))
+                        finally :
+                            time.sleep(1)
+
     
-    def http_title(self,text, channel,sock):
+    def http_title(self,text, channel,sock,sqlcursor,db,defaultEncoding):
             headers = {'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:23.0) Gecko/20100101 Firefox/23.0'}
             m = HTTP_RE.findall(text)
+            indx = text.rfind("PRIVMSG") + len(channel) + 8
             #print "m=%s" % m
             for x in xrange(len(m)):
                 try:
@@ -194,52 +245,190 @@ class MyDaemon(Daemon):
                     mimetype = info.getmaintype()
                     ext = info.getsubtype()
                     if mimetype != "image" and mimetype == "text" :
-                        sech = re.compile(r"<title>(.*)<\/title>").findall(res.read())
+                        data = res.read()
+                        sech = re.compile(r"<title>(.*)<\/title>", re.I).findall(data.replace("\n",""))
+                        nick = self.get_nick(text)
                         charset = self.detect_encoding(sech[0])
-                        text = sech[0].decode(charset).replace("\n","").replace("\r","")
+                        title_text = sech[0].decode(charset).replace("\n","").replace("\r","")
                         color = re.compile(r'([0-9]{1,2})')
-                        text = color.sub("",text)
-                        if len(text) > 300 : text = text[:300]
-                        if channel == "#trollsquad" or channel == "#test" : sock.send("PRIVMSG %s :05%s\n\r" \
-                                                                            % (channel, text.encode("cp1251")))
+                        title_text = color.sub("",title_text)
+                        title_text_src = title_text
+                        title_text = self.unescape(title_text.encode(defaultEncoding))
+
+                        if len(title_text) > 300 : title_text = title_text[:300]
+                        if text[indx+2:][0:5] != "$add " :
+                            if channel == "#trollsquad" or channel == "#test" : sock.send("PRIVMSG %s :05%s ~desu~\n\r" \
+                                                                            % (channel, title_text))
+                        
+                        else: 
+                            sha512hash = sha512(title_text_src).hexdigest()
+                            sqlcursor.execute("""SELECT id from torrent where topic_sha LIKE '%s' """ %  sha512hash)
+                            ident = sqlcursor.fetchone()
+                            if ident == None:
+                                sql = """INSERT INTO torrent(id,nick,link,topic,topic_sha,changed,change_data) VALUES (NULL,'%s','%s','%s','%s','0',NULL)""" % (nick,url,title_text_src,sha512hash)
+                                try :
+                                    sqlcursor.execute(sql)
+                                    db.commit()
+                                except MySQLdb.Error, e: 
+                                    if db:
+                                       db.rollback()
+                                    self.loger("Error %d: %s" % (e.args[0],e.args[1]))
+                                if channel == "#trollsquad" or channel == "#test" : sock.send("PRIVMSG %s :Torrent 03%s was successfully added ~desu~\n\r" \
+                                                                            % (channel, url ))
+                            elif channel == "#trollsquad" or channel == "#test" : sock.send("PRIVMSG %s :05%s ~desu~\n\r" \
+                                                                            % (channel, "torrent already exists" ))
+                       
+                        if VIDEO_RE.search(data) and YOUTUBE_RE.search(url):
+                            
+                            m = VIDEO_RE.search(data)
+                            videoid = m.group("videoid")
+                            sql = """INSERT INTO `video` (autor,videoid,title,viewed) SELECT * FROM (SELECT '%s','%s','%s','0') AS tmp WHERE NOT EXISTS (SELECT `videoid` FROM `video` WHERE `videoid` = '%s') LIMIT 1; """ \
+                                                                                            % (nick,videoid,title_text,videoid)
+                            try :
+                                sqlcursor.execute(sql)
+                                db.commit()
+                            except MySQLdb.Error, e: 
+                                if db:
+                                   db.rollback()
+                                self.loger("Error %d: %s" % (e.args[0],e.args[1]))
+
                         res.close()
                     elif mimetype == "image":
-                        img = Image.open(StringIO.StringIO(res.read()))
-                        imagePath = "%s/images/%s" % (path,url.replace("/","_")) 
-                        img.save("%s.%s" % (imagePath,ext))
+                        f = StringIO.StringIO(res.read())
+                        img = Image.open(f)
+                        md5hash = md5(f.getvalue()).hexdigest()
+                        sha512hash = sha512(f.getvalue()).hexdigest()
+                        m = md5(url.replace("/","_")).hexdigest()
+                        imagePath = "%s/images/%s.%s" % (path,m,ext) 
+                        #imagePath = "%s/images/%s" % (path,url.replace("/","_")) 
+                        fullname = "%s.%s" % (m,ext)
+                        sqlcursor.execute("""SELECT id from pics where md5 LIKE '%s' """ %  md5hash)
+                        ident = sqlcursor.fetchone()
+                        #print ident
+                        if ident == None:
+                            img.save("%s" % (imagePath))
+                            nick = self.get_nick(text)
+                            sql = """INSERT INTO pics(id,name,path,autor,datetime,rating,md5,sha512) VALUES (NULL,'%s','%s','%s',NULL,'0','%s','%s')""" % (fullname,imagePath,nick,md5hash,sha512hash) 
+                            sqlcursor.execute(sql)
+                            db.commit()
+                        elif channel == "#trollsquad" or channel == "#test" : 
+                            sqlcursor.execute("""SELECT `datetime`,`autor` FROM `pics` WHERE `md5` LIKE '%s' """ % md5hash)
+                            autorAndDate = sqlcursor.fetchone()
+                            self.loger(autorAndDate)
+                            sock.send("PRIVMSG %s :04%s %s http://pictures.gendalf.info/file/%s/ uploaded by %s ~baka~\n\r" \
+                                                                            % (channel, "[:]||||||[:]",autorAndDate[0],md5hash,autorAndDate[1]))
                         res.close()
 
 
                 except URLError, e: 
-                    if hasattr(e, 'reason'): pass
+                    if hasattr(e, 'reason'): 
+                        txt = 'We failed to reach a server. Reason: %s' % e.reason
+                        if channel == "#trollsquad" or channel == "#test" : sock.send("PRIVMSG %s :04%s ~baka~\n\r" \
+                                                                            % (channel, self.unescape(txt)))
                         #print 'We failed to reach a server.'
                         #print 'Reason: ', e.reason
-                    elif hasattr(e, 'code'): pass
+                    elif hasattr(e, 'code'): 
+                        txt = 'The server couldn\'t fulfill the request. Error code: %s' % e.code
+                        if channel == "#trollsquad" or channel == "#test" : sock.send("PRIVMSG %s :04%s ~baka~\n\r" \
+                                                                            % (channel, self.unescape(txt)))
                         #print 'The server couldn\'t fulfill the request.'
                         #print 'Error code: ', e.code
     
     
     
-    def link(self, text):
+    def link(self, text,sqlcursor,db,sock):
         m = IMAGE_RE.findall(text)
         for x in xrange(len(m)):
+          try:  
+            channel = self.get_channel(text)
             url = m[x][0]
             print "url: %s" % url
-            res = urllib2.urlopen(url)
+            headers = {'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:23.0) Gecko/20100101 Firefox/23.0'}
+            request = urllib2.Request(url, None, headers)
+            res = urllib2.urlopen(request)
             info = res.info()
             mimetype = info.getmaintype()
+            ext = info.getsubtype()
             if mimetype == "image":
-                img = Image.open(StringIO.StringIO(res.read()))
-                imagePath = "%s/images/%s" % (path,url.replace("/","_")) 
-                img.save(imagePath) 
+                f = StringIO.StringIO(res.read())
+                img = Image.open(f)
+                m = md5(url.replace("/","_")).hexdigest()
+                md5hash = md5(f.getvalue()).hexdigest()
+                sha512hash = sha512(f.getvalue()).hexdigest()
+                fullname = "%s.%s" % (m,ext)
+                imagePath = "%s/images/%s.%s" % (path,m,ext)
+                sqlcursor.execute("""SELECT id from pics where md5 LIKE '%s' """ %  md5hash)
+                #self.loger(md5hash)
+                ident = sqlcursor.fetchone()
+                #self.loger(ident)
+                print ident
+                if ident == None : 
+                    img.save("%s" % (imagePath))
+                    nick = self.get_nick(text)
+                    sql = """INSERT INTO pics(id,name,path,autor,datetime,rating,md5,sha512) VALUES (NULL,'%s','%s','%s',NULL,'1','%s','%s')""" % (fullname,imagePath,nick,md5hash,sha512hash)
+                    sqlcursor.execute(sql)
+                    db.commit()
+                elif channel == "#trollsquad" or channel == "#test" :
+                   sqlcursor.execute("""SELECT `datetime`,`autor` FROM `pics` WHERE `md5` LIKE '%s' """ % md5hash)
+                   autorAndDate = sqlcursor.fetchone()
+                   self.loger(autorAndDate)
+                   sock.send("PRIVMSG %s :04%s %s http://pictures.gendalf.info/file/%s/ uploaded by %s ~baka~\n\r" \
+                                                                            % (channel, "[:]||||||[:]",autorAndDate[0],md5hash,autorAndDate[1]))
                 res.close()
-
+                f.close()
+          except URLError, e: 
+                    if hasattr(e, 'reason'): 
+                        txt = 'We failed to reach a server. Reason: %s' % e.reason
+                        if channel == "#trollsquad" or channel == "#test" : sock.send("PRIVMSG %s :04%s ~baka~\n\r" \
+                                                                            % (channel, self.unescape(txt)))
+                        #print 'We failed to reach a server.'
+                        #print 'Reason: ', e.reason
+                    elif hasattr(e, 'code'): 
+                        txt = 'The server couldn\'t fulfill the request. Error code: %s' % e.code
+                        if channel == "#trollsquad" or channel == "#test" : sock.send("PRIVMSG %s :04%s ~baka~\n\r" \
+                                                                            % (channel, self.unescape(txt)))
     def send_ping(self,sock):
             global threadLife
             while threadLife:
                 time.sleep(10)
                 sock.send("PING :LAG%s\n\r" % time.time())
-    
+    def informer(self,sock,sqlcursor,db,defaultEncoding):
+        global threadLife
+        headers = {'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:23.0) Gecko/20100101 Firefox/23.0'}
+        while threadLife:
+            time.sleep(3600)
+            sqlcursor.execute(""" SELECT link FROM torrent """)
+            ident = sqlcursor.fetchall()
+            if ident != None:
+                for x in xrange(len(ident)):
+                    try:
+                        request = urllib2.Request(ident[x][0], None, headers)
+                        res = urllib2.urlopen(request)
+                        sech = re.compile(r"<title>(.*)<\/title>").findall(res.read().replace("\n",""))
+                        charset = self.detect_encoding(sech[0])
+                        title_text = sech[0].decode(charset).replace("\n","").replace("\r","")
+                        color = re.compile(r'([0-9]{1,2})')
+                        title_text = color.sub("",title_text)
+                        #title_text = self.unescape(title_text)
+                        if len(title_text) > 300 : title_text = title_text[:300]
+                        sha512hash = sha512(title_text).hexdigest()
+                        sqlcursor.execute("""SELECT topic_sha from torrent where link LIKE '%s' """ %  ident[x][0])
+                        topic_hash = sqlcursor.fetchone()[0]
+                        self.loger("%s=>%s" % (topic_hash,sha512hash))
+                        if topic_hash != sha512hash : 
+                            sqlcursor.execute("""UPDATE torrent SET changed='1',topic = '%s',topic_sha = '%s',change_data = NULL WHERE link = '%s';""" % (title_text,sha512hash,ident[x][0]))
+                            db.commit()
+                            #if time.strftime("%H") == "20" :
+                            sock.send("PRIVMSG %s :Torrent %s changed. Link: 03%s ~desu~\n\r" % ("#trollsquad",str(title_text),ident[x][0]))
+
+                        
+                    except: pass #traceback.print_exception(Value,Trace, limit=5,file="%s/error.txt" % path)
+
+
+                    #self.loger()
+                    #self.http_title(str(ident[x][0]),"#test",sock,sqlcursor,db,defaultEncoding)
+                    
+
     def detect_encoding(self,line):
             try:
                 u = UniversalDetector()
@@ -264,6 +453,51 @@ class MyDaemon(Daemon):
     
     def get_nick(self,line):
         return NICK_RE.match(line).group(1)   
+
+    def loger(self, text):
+        f = open("%s/log.html" % path,"a")
+        #text = self.escape_html(text)
+        f.writelines("<font color=red>[%s] </font><font color=blue>%s</font><br />" \
+            % (time.strftime("%d %m %Y %H:%M:%S"), text))
+        f.close()
+    def unescape(self,text):
+        text = text.replace("&quot;","\"")
+        text = text.replace("&lt;","<")
+        text = text.replace("&gt;",">")
+        text = text.replace("&nbsp;"," ")
+        text = text.replace("&iexcl;","¡")
+        text = text.replace("&cent;","¢")
+        text = text.replace("&pound;","£")
+        text = text.replace("&curren;","¤")
+        text = text.replace("&yen;","¥")
+        text = text.replace("&brvbar;","¦")
+        text = text.replace("&sect;","§")
+        text = text.replace("&uml;","¨")
+        text = text.replace("&copy;","©")
+        text = text.replace("&ordf;","ª")
+        text = text.replace("&laquo;","«")
+        text = text.replace("&not;","¬")
+        text = text.replace("&shy;","")
+        text = text.replace("&reg;","®")
+        text = text.replace("&macr;","¯")
+        text = text.replace("&deg;","°")
+        text = text.replace("&plusmn;","±")
+        text = text.replace("&sup2;","²")
+        text = text.replace("&sup3;","³")
+        text = text.replace("&acute;","´")
+        text = text.replace("&micro;","µ")
+        text = text.replace("&para;","¶")
+        text = text.replace("&middot;","·")
+        text = text.replace("&cedil;","¸")
+        text = text.replace("&sup1;","¹")
+        text = text.replace("&ordm;","º")
+        text = text.replace("&raquo;","»")
+        text = text.replace("&frac14;","¼")
+        text = text.replace("&frac12;","½")
+        text = text.replace("&frac34;","¾")
+        text = text.replace("&iquest;","¿")
+        text = text.replace("&amp;","&")
+        return text
 
 
 if __name__ == "__main__":
