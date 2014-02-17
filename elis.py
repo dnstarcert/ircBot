@@ -22,7 +22,7 @@ import socket
 import threading
 import sys, inspect, os, tempfile,re,traceback
 import os.path
-import base64,urllib2
+import base64,urllib2,urllib
 from urllib2 import Request, urlopen, URLError
 from chardet.universaldetector import UniversalDetector
 from urlparse import urlparse
@@ -34,7 +34,8 @@ import string, StringIO
 import MySQLdb
 from hashlib import md5,sha512
 import sqlite3
-
+from cookielib import MozillaCookieJar
+from cookielib import FileCookieJar
 
 #sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 os.chdir(os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe()))))
@@ -47,12 +48,19 @@ HTTP_RE  = re.compile(r"(https?:\/\/[^\s^,]+)")
 IGNORE_RE = re.compile(r"(https?:\/\/pictures.gendalf.info)")
 VIDEO_RE = re.compile(r"\'VIDEO_ID\': \"(?P<videoid>[\w\-\.]+?)\"")
 YOUTUBE_RE = re.compile(r"(https?:\/\/www.youtube.com)")
+SITE_RE = re.compile(r"(?P<site>https?:\/\/[a-zA-Z0-9\.]+)")
+VK_RE = re.compile(r"(https?:\/\/vk.com)")
+
 
 basePath = "%s/%s" % (path,'logs.db')
 dbl = sqlite3.connect(basePath)
 base = dbl.cursor()
 base.execute('CREATE TABLE IF NOT EXISTS logs (id int(3) PRIMARY KEY NOT NULL UNIQUE,nick text,datetime timestamp,txt text)')
 dbl.commit()
+
+vkcookie = MozillaCookieJar()
+vkcookie.load("%s/vk.txt" % path)
+vkopener = urllib2.build_opener(urllib2.HTTPCookieProcessor(vkcookie))
 
 class MyDaemon(Daemon): 
     def run(self):
@@ -77,16 +85,35 @@ class MyDaemon(Daemon):
         defaultEncoding = config.get("bot", "encoding")
         db_user=config.get("db", "user")
         db_passwd=config.get("db", "passwd")
+        vk_user=config.get("vk", "email")
+        vk_passwd=config.get("vk", "passwd")
         channels = config.get("bot", "channels").split(",")
         onStart = True
         db = MySQLdb.connect(host="localhost", user=db_user, passwd=db_passwd, db="pictures", charset='utf8')
         sqlcursor = db.cursor()
-        
+        if(vk_user !='' and vk_passwd !=''):
+            self.vkauth(vk_user,vk_passwd)
+
         t = threading.Thread(target=self.recv_data, args=(sock,onStart,my_nick,defaultEncoding,channels,sqlcursor,db,))
         t.daemon = False
         t.setName("Read data")
         t.start()
         
+    def vkauth(self,vk_user,vk_passwd):
+        global vkcookie,path,vkopener
+        host = "vk.com"
+        vkopener.addheaders = [('User-Agent', "Mozilla/5.0 (X11; Linux x86_64; rv:23.0) Gecko/20100101 Firefox/23.0"),
+                       ('Accept','text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'),
+                       ('Accept-Language','en-US,en;q=0.5'),
+                       ('Connection','keep-alive'),
+                       ('host',host)]
+        formdata = { "email" : vk_user, "pass": vk_passwd, "act" : "login", "role" : "al_frame" , "expire" : "", '_origin' : 'http://vk.com', 'captcha_key' : '',
+            'captcha_sid' : '', 'ip_h' : '6b952d33e89ad7f4f','role' :'al_frame'}
+        data_encoded = urllib.urlencode(formdata)            
+        url = "https://login.vk.com/?act=login"
+        response = vkopener.open(url)
+        vkcookie.save("%s/vk.txt" % path)
+
     
     
     def recv_data(self,sock,onStart,my_nick,defaultEncoding,channels,sqlcursor,db):
@@ -237,15 +264,24 @@ class MyDaemon(Daemon):
                 try:
                     url = m[x]
                     #print "url: %s" % url
-                    request = urllib2.Request(url, None, headers)
-                    res = urllib2.urlopen(request)
+                    if VK_RE.search(url) :
+                        res =vkopener.open(url)
+                    else :
+                        request = urllib2.Request(url, None, headers)
+                        res = urllib2.urlopen(request)
                     #print res.headers
                     info = res.info()
                     #print info
                     mimetype = info.getmaintype()
                     ext = info.getsubtype()
+                    m = SITE_RE.search(url)
+                    site = m.group("site")
+                    sqlcursor.execute("""SELECT `id` from `ignore` where `url` LIKE '%%%s%%' """ %  site)
+                    identSite = sqlcursor.fetchone()
+                    #self.loger("%s->%s" %(repr(site),identSite))
                     if mimetype != "image" and mimetype == "text" :
                         data = res.read()
+                        #self.loger(data)
                         sech = re.compile(r"<title>(.*)<\/title>", re.I).findall(data.replace("\n",""))
                         nick = self.get_nick(text)
                         charset = self.detect_encoding(sech[0])
@@ -293,7 +329,7 @@ class MyDaemon(Daemon):
                                 self.loger("Error %d: %s" % (e.args[0],e.args[1]))
 
                         res.close()
-                    elif mimetype == "image":
+                    elif mimetype == "image" and identSite == None:
                         f = StringIO.StringIO(res.read())
                         img = Image.open(f)
                         md5hash = md5(f.getvalue()).hexdigest()
@@ -314,7 +350,7 @@ class MyDaemon(Daemon):
                         elif channel == "#trollsquad" or channel == "#test" : 
                             sqlcursor.execute("""SELECT `datetime`,`autor` FROM `pics` WHERE `md5` LIKE '%s' """ % md5hash)
                             autorAndDate = sqlcursor.fetchone()
-                            self.loger(autorAndDate)
+                            #self.loger(autorAndDate)
                             sock.send("PRIVMSG %s :04%s %s http://pictures.gendalf.info/file/%s/ uploaded by %s ~baka~\n\r" \
                                                                             % (channel, "[:]||||||[:]",autorAndDate[0],md5hash,autorAndDate[1]))
                         res.close()
@@ -342,14 +378,21 @@ class MyDaemon(Daemon):
           try:  
             channel = self.get_channel(text)
             url = m[x][0]
-            print "url: %s" % url
+            #print "url: %s" % url
             headers = {'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:23.0) Gecko/20100101 Firefox/23.0'}
-            request = urllib2.Request(url, None, headers)
-            res = urllib2.urlopen(request)
+            if VK_RE.search(url) :
+                        res =vkopener.open(url)
+            else :
+                        request = urllib2.Request(url, None, headers)
+                        res = urllib2.urlopen(request)
             info = res.info()
             mimetype = info.getmaintype()
             ext = info.getsubtype()
-            if mimetype == "image":
+            m = SITE_RE.search(url)
+            site = m.group("site")
+            sqlcursor.execute("""SELECT `id` from `ignore` where `url` LIKE '%%%s%%' """ %  site)
+            identSite = sqlcursor.fetchone()
+            if mimetype == "image" and identSite == None:
                 f = StringIO.StringIO(res.read())
                 img = Image.open(f)
                 m = md5(url.replace("/","_")).hexdigest()
@@ -371,7 +414,7 @@ class MyDaemon(Daemon):
                 elif channel == "#trollsquad" or channel == "#test" :
                    sqlcursor.execute("""SELECT `datetime`,`autor` FROM `pics` WHERE `md5` LIKE '%s' """ % md5hash)
                    autorAndDate = sqlcursor.fetchone()
-                   self.loger(autorAndDate)
+                   #self.loger(autorAndDate)
                    sock.send("PRIVMSG %s :04%s %s http://pictures.gendalf.info/file/%s/ uploaded by %s ~baka~\n\r" \
                                                                             % (channel, "[:]||||||[:]",autorAndDate[0],md5hash,autorAndDate[1]))
                 res.close()
