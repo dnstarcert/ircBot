@@ -50,7 +50,7 @@ VIDEO_RE = re.compile(r"\'VIDEO_ID\': \"(?P<videoid>[\w\-\.]+?)\"")
 YOUTUBE_RE = re.compile(r"(https?:\/\/www.youtube.com)")
 SITE_RE = re.compile(r"(?P<site>https?:\/\/[a-zA-Z0-9\.]+)")
 VK_RE = re.compile(r"(https?:\/\/vk.com)")
-
+CHARSET_RE = re.compile('text/html; charset=([\w\s\-].*)\">')
 
 basePath = "%s/%s" % (path,'logs.db')
 dbl = sqlite3.connect(basePath)
@@ -255,7 +255,7 @@ class MyDaemon(Daemon):
                             time.sleep(1)
 
     
-    def http_title(self,text, channel,sock,sqlcursor,db,defaultEncoding):
+    def http_title(self,text, channel,sock,sqlcursor,db,defaultEncoding,trying = 0):
             headers = {'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:23.0) Gecko/20100101 Firefox/23.0'}
             m = HTTP_RE.findall(text)
             indx = text.rfind("PRIVMSG") + len(channel) + 8
@@ -284,7 +284,19 @@ class MyDaemon(Daemon):
                         #self.loger(data)
                         sech = re.compile(r"<title>(.*)<\/title>", re.I).findall(data.replace("\n",""))
                         nick = self.get_nick(text)
-                        charset = self.detect_encoding(sech[0])
+                        try:
+                            charset = self.detect_encoding(sech[0])
+                        except:
+                            #self.loger(data)
+                            if trying < 100 :
+                                 self.http_title(text, channel,sock,sqlcursor,db,defaultEncoding,trying + 1)
+                                 time.sleep(5)
+                            raw_charset = CHARSET_RE.findall(data)[0]
+                            if raw_charset == "windows-1251": charset = "cp1251"
+                            else : charset = raw_charset
+                        #self.loger(res.msg)
+                        #self.loger(sech[0].decode(charset))
+                        trying = 0
                         title_text = sech[0].decode(charset).replace("\n","").replace("\r","")
                         color = re.compile(r'([0-9]{1,2})')
                         title_text = color.sub("",title_text)
@@ -340,7 +352,7 @@ class MyDaemon(Daemon):
                         fullname = "%s.%s" % (m,ext)
                         sqlcursor.execute("""SELECT id from pics where md5 LIKE '%s' """ %  md5hash)
                         ident = sqlcursor.fetchone()
-                        #print ident
+                        self.loger(ident)
                         if ident == None:
                             img.save("%s" % (imagePath))
                             nick = self.get_nick(text)
@@ -350,7 +362,7 @@ class MyDaemon(Daemon):
                         elif channel == "#trollsquad" or channel == "#test" : 
                             sqlcursor.execute("""SELECT `datetime`,`autor` FROM `pics` WHERE `md5` LIKE '%s' """ % md5hash)
                             autorAndDate = sqlcursor.fetchone()
-                            #self.loger(autorAndDate)
+                            self.loger(autorAndDate)
                             sock.send("PRIVMSG %s :04%s %s http://pictures.gendalf.info/file/%s/ uploaded by %s ~baka~\n\r" \
                                                                             % (channel, "[:]||||||[:]",autorAndDate[0],md5hash,autorAndDate[1]))
                         res.close()
