@@ -41,6 +41,7 @@ from multiprocessing.managers import BaseManager
 from Queue import Empty
 from subprocess import Popen, PIPE
 from signal import SIGTERM 
+from HTMLParser import HTMLParser
 
 #sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 os.chdir(os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe()))))
@@ -58,6 +59,8 @@ VK_RE = re.compile(r"(https?:\/\/vk.com)")
 CHARSET_RE = re.compile('text/html; charset=([\w\s\-].*)\">')
 AUDIO_RE = re.compile('<a class="current_audio fl_l" .*><div class="label fl_l"><\/div>(.*)<\/a>')
 VKMESSAGE_RE = re.compile('<tr id="mess([0-9]+?)"[\d\s\S\D]+?<a href=".*" class="mem_link" target="_blank">(.+?)<.*<div class="im_msg_text">(.*?)?<\/div>(.*<img src="(.+?)")?',re.UNICODE)
+PID_RE= re.compile(r"freeman\s+([\d]+)?\s+")
+
 
 basePath = "%s/%s" % (path,'logs.db')
 dbl = sqlite3.connect(basePath)
@@ -100,8 +103,9 @@ class MyDaemon(Daemon):
         out = out.split('\n')
         for istr in out:
             if "elis.py" in istr:
-                #print istr.split(' ')[1]
-                pid = int(istr.split(' ')[1])
+                pid = int(PID_RE.match(istr).group(1))
+                print pid
+                #pid = int(istr.split(' ')[5])
                 if int(pid) != int(pr.pid) :
                     #print "pid = %s , kill = %s" % (pr.pid,pid)
                     os.kill(pid, SIGTERM)
@@ -304,7 +308,8 @@ class MyDaemon(Daemon):
                     for channel in channels :
                         sock.send('JOIN %s \n\r' % channel)
                     #print "Connected"
-                    sock.send("PRIVMSG nickserv :IDENTIFY tuturuuu\n\r")
+                    sock.send("PRIVMSG nickserv :IDENTIFY YED35\n\r")
+                    sock.send("PRIVMSG chanserv :halfop #trollsquad feiris\n\r")
                     self.loger("starting informer")
                     torrent = mp.Process(name= "torrent informer",target=self.informer,args=(sock,sqlcursor,db,defaultEncoding,))
                     torrent.daemon = True
@@ -401,6 +406,8 @@ class MyDaemon(Daemon):
         sql = """INSERT INTO logs(id,datetime,channel,nick,text) VALUES (NULL,NULL,'%s','%s','%s')""" % (channel,nick,text[indx+2:].decode(charset)) 
         sqlcursor.execute(sql)
         db.commit()
+        if charset != defaultEncoding and channel == "#trollsquad":
+            sock.send("PRIVMSG %s :05%s say: %s ~desu~\n\r" % (channel,nick,text[indx+2:].decode(charset).encode(defaultEncoding)))
         #print "%s" % text[indx:]
         #HTTP_RE  = re.compile(r"(http:\/\/[^\s]+)")
         #print HTTP_RE.search(text)
@@ -470,6 +477,31 @@ class MyDaemon(Daemon):
         except: pass
 
 
+    def http_title_cycle(self,url) : 
+        headers = {'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:23.0) Gecko/20100101 Firefox/23.0'}
+        charset = ""
+        title = ""
+        for trying in xrange(100) :
+            request = urllib2.Request(url, None, headers)
+            res = urllib2.urlopen(request)
+            data = res.read()
+            sech = re.compile(r"<title>(.*)<\/title>", re.I).findall(data.replace("\n",""))
+            try: 
+                title = sech[0]
+                charset = self.detect_encoding(sech[0])
+                self.loger("url:%s <-> try:%s <-> charset:%s ---> title: %s" % (url,trying,charset,title))
+                return charset,sech[0]
+            except:
+                if trying < 100 :
+                #     self.http_title_cycle(url,trying + 1)
+                    self.loger("url:%s <-> try:%s <-> charset:%s ---> title: %s" % (url,trying,charset,title))
+                    time.sleep(5)
+        serf.loger("url:%s <-> try:%s <-> charset:%s ---> title: %s" % (url,trying,charset,sech[0]))
+        raw_charset = CHARSET_RE.findall(data)[0]
+        if raw_charset == "windows-1251": charset = "cp1251"
+        else : charset = raw_charset
+        return charset,title   
+
 
     def http_title(self,text, channel,sock,sqlcursor,db,defaultEncoding,trying = 0):
             p = mp.current_process()
@@ -479,11 +511,19 @@ class MyDaemon(Daemon):
             m = HTTP_RE.findall(text)
             indx = text.rfind("PRIVMSG") + len(channel) + 8
             #print "m=%s" % m
-            for x in xrange(len(m)):
+            for x in m:
                 try:
-                    url = m[x]
+                    url = x
                     #print "url: %s" % url
                     if VK_RE.search(url) :
+                        vkcookie.load("%s/vk.txt" % path)
+                        vkopener = urllib2.build_opener(urllib2.HTTPCookieProcessor(vkcookie))
+                        host = "vk.com"
+                        vkopener.addheaders = [('User-Agent', "Mozilla/5.0 (X11; Linux x86_64; rv:23.0) Gecko/20100101 Firefox/23.0"),
+                       ('Accept','text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'),
+                       ('Accept-Language','en-US,en;q=0.5'),
+                       ('Connection','keep-alive'),
+                       ('host',host)]
                         res =vkopener.open(url)
                     else :
                         request = urllib2.Request(url, None, headers)
@@ -501,19 +541,12 @@ class MyDaemon(Daemon):
                     #self.loger("%s->%s" %(repr(site),identSite))
                     if mimetype != "image" and mimetype == "text" :
                         data = res.read()
-                        #self.loger(data)
                         sech = re.compile(r"<title>(.*)<\/title>", re.I).findall(data.replace("\n",""))
                         nick = self.get_nick(text)
                         try:
-                            charset = self.detect_encoding(sech[0])
+                        	charset = self.detect_encoding(sech[0])
                         except:
-                            #self.loger(data)
-                            if trying < 100 :
-                                 self.http_title(text, channel,sock,sqlcursor,db,defaultEncoding,trying + 1)
-                                 time.sleep(5)
-                            raw_charset = CHARSET_RE.findall(data)[0]
-                            if raw_charset == "windows-1251": charset = "cp1251"
-                            else : charset = raw_charset
+                            charset,sech[0] = self.http_title_cycle(url)
                         #self.loger(res.msg)
                         #self.loger(sech[0].decode(charset))
                         trying = 0
@@ -521,7 +554,7 @@ class MyDaemon(Daemon):
                         color = re.compile(r'([0-9]{1,2})')
                         title_text = color.sub("",title_text)
                         title_text_src = title_text.encode(defaultEncoding)
-                        title_text = self.unescape(title_text.encode(defaultEncoding))
+                        title_text = self.unescape(title_text.encode(defaultEncoding)) 
 
                         if len(title_text) > 300 : title_text = title_text[:300]
                         if text[indx+2:][0:5] != "$add " :
@@ -634,10 +667,12 @@ class MyDaemon(Daemon):
         istr = "add|%s|%s" % (p.name,p.pid)
         queue.put(istr)
         m = IMAGE_RE.findall(text)
-        for x in xrange(len(m)):
+        for x in m:
           try:  
+            #sys.stderr.write(x[0])
+            #sys.stderr.flush()
             channel = self.get_channel(text)
-            url = m[x][0]
+            url = x[0]
             #print "url: %s" % url
             headers = {'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:23.0) Gecko/20100101 Firefox/23.0'}
             if VK_RE.search(url) :
@@ -749,6 +784,7 @@ class MyDaemon(Daemon):
             #sock.send("NOTICE %s :stage 2: read vk\n\r" % self.get_nick(text))
             #self.loger(data)
             sech = AUDIO_RE.findall(data)
+            CHR_RE = re.compile(r"(&#[0-9]+;)")
             #sock.send("NOTICE %s :stage 3: find text. array len: %s\n\r" % (self.get_nick(text),len(sech)))
             if len(sech) != 0:
                 try:
@@ -760,10 +796,21 @@ class MyDaemon(Daemon):
                 title_text = color.sub("",title_text)
                 title_text_src = title_text
                 title_text = self.unescape(title_text.encode(defaultEncoding))
+                chr_search = CHR_RE.findall(title_text)
+                unescape = HTMLParser().unescape
+                if len(chr_search) != 0:
+                     sys.stderr.write("char array %s \n" % chr_search )
+                     sys.stderr.flush()
+                     for char in chr_search:
+                         ctring = unescape(char).encode("utf-8")
+                         title_text = title_text.replace(char,ctring)
+                         sys.stderr.write("replace char %s -> %s \n" % (char,ctring)  )
+                         sys.stderr.flush()
+                         #title_text = title_text.replace("&#%s;" % char,chr(int(char)))
                 #self.loger(title_text)
                 if channel == "#trollsquad" : 
-                    sock.send("PRIVMSG %s :05now playing in vk: %s ~desu~\n\r" % (channel, title_text))
-            else : sock.send("PRIVMSG %s :04%s ~desu~\n\r" % (channel, "silence"))
+                    sock.send("PRIVMSG %s :%s now listening: 05%s ~desu~\n\r" % (channel,nick,title_text))
+            else : sock.send("PRIVMSG %s :04%s %s ~desu~\n\r" % (channel,nick, "hears the voice conspiratorially cockroaches in his head"))
         istr = "del|%s|%s" % (p.name,p.pid)
         queue.put(istr)
 
@@ -956,6 +1003,15 @@ class MyDaemon(Daemon):
         text = text.replace("&amp;","&")
         text = text.replace("&#39;","'")
         text = text.replace("&#33;","!")
+        CHR_RE = re.compile(r"(&#?[0-9a-zA-Z]+;)")
+        chr_search = CHR_RE.findall(text)
+        unescape = HTMLParser().unescape
+        if len(chr_search) != 0:
+            for char in chr_search:
+                ctring = unescape(char).encode("utf-8")
+                text = text.replace(char,ctring)
+                sys.stderr.write("replace char %s -> %s \n" % (char,ctring)  )
+                sys.stderr.flush()
         return text
 
 
