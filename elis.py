@@ -42,6 +42,7 @@ from Queue import Empty
 from subprocess import Popen, PIPE
 from signal import SIGTERM 
 from HTMLParser import HTMLParser
+import gzip
 
 #sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 os.chdir(os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe()))))
@@ -98,13 +99,16 @@ class MyDaemon(Daemon):
         # kill -9 $str
         pr = mp.current_process()
         print "my pid = %s" % pr.pid
+        sys.stdout.write("stoping child:")
         p = Popen(['ps','auxw'], stdout=PIPE, stderr=PIPE)
         out,err = p.communicate()
         out = out.split('\n')
         for istr in out:
             if "elis.py" in istr:
                 pid = int(PID_RE.match(istr).group(1))
-                print pid
+                sys.stdout.write("%s " % pid)
+                sys.stdout.flush()
+                #print "\b%s " % pid
                 #pid = int(istr.split(' ')[5])
                 if int(pid) != int(pr.pid) :
                     #print "pid = %s , kill = %s" % (pr.pid,pid)
@@ -115,6 +119,7 @@ class MyDaemon(Daemon):
             i.terminate()
         for item  in self.processes.values():
             item.terminate()
+
     
     def exterminate(self):
     	pr = mp.current_process()
@@ -166,7 +171,7 @@ class MyDaemon(Daemon):
         my_nick = "NICK %s\n\r" % NICK
         sock.connect((HOST, int(PORT)))
         sock.send('PONG LAG123124124 \n\r')
-        sock.send('USER Ghost 95 * :Phantom \n\r')
+        sock.send('USER Satori 95 * :Phantom \n\r')
         sock.send(my_nick)
         #recv_data(sock)
         config = ConfigParser.RawConfigParser()
@@ -304,6 +309,7 @@ class MyDaemon(Daemon):
                 if onStart == True:
                     onStart = False
                     #print "JOIN: "
+                    sock.send("VHOST vk lls39vj\n\r")
                     charset = self.detect_encoding(text)
                     for channel in channels :
                         sock.send('JOIN %s \n\r' % channel)
@@ -406,8 +412,11 @@ class MyDaemon(Daemon):
         sql = """INSERT INTO logs(id,datetime,channel,nick,text) VALUES (NULL,NULL,'%s','%s','%s')""" % (channel,nick,text[indx+2:].decode(charset)) 
         sqlcursor.execute(sql)
         db.commit()
-        if charset != defaultEncoding and channel == "#trollsquad":
-            sock.send("PRIVMSG %s :05%s say: %s ~desu~\n\r" % (channel,nick,text[indx+2:].decode(charset).encode(defaultEncoding)))
+        #lenofstring = len(text[indx+2:].decode(charset).encode(defaultEncoding))
+        #sys.stderr.write("-> %s <-\n" % repr(text[indx+2:-2]) )
+        #sys.stderr.flush()
+        if charset != defaultEncoding and channel == "#trollsquad" and charset != "TIS-620" and len(text[indx+2:])>4 and text[indx+2:-2] != '№':       
+            sock.send("PRIVMSG %s :05%s say(%s): %s~desu~\n\r" % (channel,nick,charset,text[indx+2:].decode(charset).encode(defaultEncoding)))
         #print "%s" % text[indx:]
         #HTTP_RE  = re.compile(r"(http:\/\/[^\s]+)")
         #print HTTP_RE.search(text)
@@ -478,9 +487,13 @@ class MyDaemon(Daemon):
 
 
     def http_title_cycle(self,url) : 
-        headers = {'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:23.0) Gecko/20100101 Firefox/23.0'}
+        headers = {'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:23.0) Gecko/20100101 Firefox/23.0' ,\
+        'Accept':'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',\
+        'Accept-Language':'en-US,en;q=0.5',\
+        'Connection':'keep-alive'}
         charset = ""
         title = ""
+        self.loger(url)
         for trying in xrange(100) :
             request = urllib2.Request(url, None, headers)
             res = urllib2.urlopen(request)
@@ -489,18 +502,17 @@ class MyDaemon(Daemon):
             try: 
                 title = sech[0]
                 charset = self.detect_encoding(sech[0])
-                self.loger("url:%s <-> try:%s <-> charset:%s ---> title: %s" % (url,trying,charset,title))
+                self.loger("try-> url:%s <-> try:%s <-> charset:%s ---> title: %s" % (url,trying,charset,title))
                 return charset,sech[0]
             except:
-                if trying < 100 :
-                #     self.http_title_cycle(url,trying + 1)
-                    self.loger("url:%s <-> try:%s <-> charset:%s ---> title: %s" % (url,trying,charset,title))
-                    time.sleep(5)
-        serf.loger("url:%s <-> try:%s <-> charset:%s ---> title: %s" % (url,trying,charset,sech[0]))
-        raw_charset = CHARSET_RE.findall(data)[0]
-        if raw_charset == "windows-1251": charset = "cp1251"
-        else : charset = raw_charset
-        return charset,title   
+                self.loger("except-> url:%s <-> try:%s <-> charset:%s ---> title: %s" % (url,trying,charset,title))
+                time.sleep(2)
+        #self.loger("finalle-> url:%s <-> try:%s <-> charset:%s ---> title: %s" % (url,trying,charset,sech[0]))
+        #raw_charset = CHARSET_RE.findall(data)[0]
+        #if raw_charset == "windows-1251": charset = "cp1251"
+        #else : charset = raw_charset
+        self.loger("returned data {charset:'%s' , title:'%s}'" % (charset,title))
+        return charset,title
 
 
     def http_title(self,text, channel,sock,sqlcursor,db,defaultEncoding,trying = 0):
@@ -541,16 +553,24 @@ class MyDaemon(Daemon):
                     #self.loger("%s->%s" %(repr(site),identSite))
                     if mimetype != "image" and mimetype == "text" :
                         data = res.read()
+                        if res.info().get('Content-Encoding') == 'gzip':
+                            buf = StringIO.StringIO( data)
+                            f = gzip.GzipFile(fileobj=buf)
+                            data = f.read()
                         sech = re.compile(r"<title>(.*)<\/title>", re.I).findall(data.replace("\n",""))
                         nick = self.get_nick(text)
+                        #title = sech[0]
                         try:
-                        	charset = self.detect_encoding(sech[0])
+                            title = sech[0]
+                            charset = self.detect_encoding(sech[0])
                         except:
-                            charset,sech[0] = self.http_title_cycle(url)
+                            self.loger("tryeng detect encoding")
+                            charset,title = self.http_title_cycle(url)
+                            self.loger("except {url:'%s',charset:'%s',title:'%s'}" % (url,charset,title))
                         #self.loger(res.msg)
                         #self.loger(sech[0].decode(charset))
                         trying = 0
-                        title_text = sech[0].decode(charset).replace("\n","").replace("\r","")
+                        title_text = title.decode(charset).replace("\n","").replace("\r","")
                         color = re.compile(r'([0-9]{1,2})')
                         title_text = color.sub("",title_text)
                         title_text_src = title_text.encode(defaultEncoding)
