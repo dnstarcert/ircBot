@@ -16,11 +16,11 @@
 #
 #bugzilla http://bugzilla.gendalf.info/buglist.cgi?product=irc%20bot&component=all&resolution=---&list_id=2
 #
-#db pass: O*%.:^8oF#]u=%z
+
 
 import socket
 import threading
-import sys, inspect, os, tempfile,re,traceback
+import sys, inspect, os, tempfile,re,traceback,dns.resolver, ssl
 import os.path
 import base64,urllib2,urllib
 from urllib2 import Request, urlopen, URLError
@@ -61,8 +61,8 @@ CHARSET_RE = re.compile('text/html; charset=([\w\s\-].*)\">')
 AUDIO_RE = re.compile('<a class="current_audio fl_l" .*><div class="label fl_l"><\/div>(.*)<\/a>')
 VKMESSAGE_RE = re.compile('<tr id="mess([0-9]+?)"[\d\s\S\D]+?<a href=".*" class="mem_link" target="_blank">(.+?)<.*<div class="im_msg_text">(.*?)?<\/div>(.*<img src="(.+?)")?',re.UNICODE)
 PID_RE= re.compile(r"freeman\s+([\d]+)?\s+")
-
-
+IP_RE = re.compile(r"\"([0-9\.]+)\"")
+HOST_RE = re.compile(r"https?:\/\/([^\s^,]+)\/")
 basePath = "%s/%s" % (path,'logs.db')
 dbl = sqlite3.connect(basePath)
 base = dbl.cursor()
@@ -186,7 +186,7 @@ class MyDaemon(Daemon):
         db = MySQLdb.connect(host="localhost", user=db_user, passwd=db_passwd, db="pictures", charset='utf8')
         sqlcursor = db.cursor()
         #self.loger("%s --- %s" % (vk_user,vk_passwd) )
-        
+        myconf = {} # тут должны быть все переменные передающиеся в функции
         self.loger("starting bot")
         t = threading.Thread(name = "Bot",target=self.recv_data, args=(sock,onStart,my_nick,defaultEncoding,channels,sqlcursor,db,))
         t.daemon = False
@@ -315,7 +315,7 @@ class MyDaemon(Daemon):
                         sock.send('JOIN %s \n\r' % channel)
                     #print "Connected"
                     sock.send("PRIVMSG nickserv :IDENTIFY YED35\n\r")
-                    sock.send("PRIVMSG chanserv :halfop #trollsquad feiris\n\r")
+                    sock.send("PRIVMSG chanserv :halfop #trollsquad %s" % my_nick) 
                     self.loger("starting informer")
                     torrent = mp.Process(name= "torrent informer",target=self.informer,args=(sock,sqlcursor,db,defaultEncoding,))
                     torrent.daemon = True
@@ -327,8 +327,11 @@ class MyDaemon(Daemon):
                     pingProcess = mp.Process(name= "ping process",target=self.send_ping, args=(sock,))
                     pingProcess.daemon = True
                     self.dataProc.append(pingProcess)
-                    #t.setName("ping")
                     pingProcess.start()
+                    proxyProcess = mp.Process(name= "proxy pac update process",target=self.updateProxyList, args=())
+                    proxyProcess.daemon = True
+                    self.dataProc.append(proxyProcess)
+                    proxyProcess.start()
                     time.sleep(1)
                     if(self.vk_user !='' and self.vk_passwd !=''):
                         self.loger("trying login to vk")
@@ -519,6 +522,7 @@ class MyDaemon(Daemon):
             p = mp.current_process()
             istr = "add|%s|%s" % (p.name,p.pid)
             queue.put(istr)
+            proxy = IP_RE.findall(open(path + "/proxy.pac","r").read())
             headers = {'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:23.0) Gecko/20100101 Firefox/23.0'}
             m = HTTP_RE.findall(text)
             indx = text.rfind("PRIVMSG") + len(channel) + 8
@@ -526,7 +530,10 @@ class MyDaemon(Daemon):
             for x in m:
                 try:
                     url = x
-                    #print "url: %s" % url
+                    if HOST_RE.findall(url) > 0 : 
+                        host = HOST_RE.findall(url)[0]
+                    else : host = url
+                    answers = dns.resolver.query(host, 'A')
                     if VK_RE.search(url) :
                         vkcookie.load("%s/vk.txt" % path)
                         vkopener = urllib2.build_opener(urllib2.HTTPCookieProcessor(vkcookie))
@@ -537,6 +544,19 @@ class MyDaemon(Daemon):
                        ('Connection','keep-alive'),
                        ('host',host)]
                         res =vkopener.open(url)
+                    elif str(answers[0]) in proxy : 
+                        #sys.stderr.write(str(answers[0]))
+                        #sys.stderr.flush()
+                        proxy_handler = urllib2.ProxyHandler({'http': 'http://proxy.antizapret.prostovpn.org:3128',
+                                                              'https': 'http://proxy.antizapret.prostovpn.org:3128'}) 
+                        #https_sslv3_handler = urllib.request.HTTPSHandler(context=ssl.SSLContext(ssl.PROTOCOL_SSLv3))
+                        opener = urllib2.build_opener(proxy_handler)
+                        opener.addheaders = [('User-Agent', "Mozilla/5.0 (X11; Linux x86_64; rv:23.0) Gecko/20100101 Firefox/23.0"),
+                                             ('Accept','text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'),
+                                             ('Accept-Language','en-US,en;q=0.5'),
+                                             ('Connection','keep-alive'),
+                                             ('host',host)]
+                        res = opener.open(url)
                     else :
                         request = urllib2.Request(url, None, headers)
                         res = urllib2.urlopen(request)
@@ -1033,7 +1053,23 @@ class MyDaemon(Daemon):
                 sys.stderr.write("replace char %s -> %s \n" % (char,ctring)  )
                 sys.stderr.flush()
         return text
-
+    def updateProxyList(self):
+        headers = {'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:23.0) Gecko/20100101 Firefox/23.0'}
+        p = mp.current_process()
+        sys.stderr.write("%s started pid=%s \n" % (p.name,p.pid) )
+        sys.stderr.flush()
+        istr = "add|%s|%s" % (p.name,p.pid)
+        queue.put(istr)
+        while True:
+            try: 
+                request = urllib2.Request('http://antizapret.prostovpn.org/proxy.pac', None, headers)
+                f = open(path+"/proxy.pac","w+")
+                f.write(urllib2.urlopen(request).read())
+                f.close()
+            except: time.sleep(60)
+            time.sleep(18000)
+        istr = "del|%s|%s" % (p.name,p.pid)
+        queue.put(istr)
 
 if __name__ == "__main__":
     daemon = MyDaemon('/tmp/elis.pid')
