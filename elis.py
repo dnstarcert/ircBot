@@ -20,7 +20,7 @@
 
 import socket
 import threading
-import sys, inspect, os, tempfile,re,traceback,dns.resolver, ssl
+import sys, inspect, os, tempfile,re,traceback,dns.resolver, ssl , procname
 import os.path
 import base64,urllib2,urllib
 from urllib2 import Request, urlopen, URLError
@@ -43,6 +43,7 @@ from subprocess import Popen, PIPE
 from signal import SIGTERM 
 from HTMLParser import HTMLParser
 import gzip
+from setproctitle import setproctitle
 
 #sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 os.chdir(os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe()))))
@@ -104,7 +105,7 @@ class MyDaemon(Daemon):
         out,err = p.communicate()
         out = out.split('\n')
         for istr in out:
-            if "elis.py" in istr:
+            if "elis" in istr:
                 pid = int(PID_RE.match(istr).group(1))
                 sys.stdout.write("%s " % pid)
                 sys.stdout.flush()
@@ -146,7 +147,7 @@ class MyDaemon(Daemon):
     def run(self):
         #print "daemon started"
         threadLife = True
-        
+        setproctitle("elis: main process")
         config = ConfigParser.RawConfigParser()
         config.read('%s/bot.cfg' % path)
         channels = config.get("bot", "channels").split(",")
@@ -195,6 +196,7 @@ class MyDaemon(Daemon):
     def vkauth(self):
         global vkcookie,path,vkopener
         p = mp.current_process()
+        setproctitle("elis: vk authentification")
         istr = "add|%s|%s" % (p.name,p.pid)
         queue.put(istr)
         #self.loger("send login info")
@@ -310,12 +312,14 @@ class MyDaemon(Daemon):
                     onStart = False
                     #print "JOIN: "
                     sock.send("VHOST vk lls39vj\n\r")
+                    sock.send("PRIVMSG nickserv :IDENTIFY YED35\n\r")
                     charset = self.detect_encoding(text)
                     for channel in channels :
                         sock.send('JOIN %s \n\r' % channel)
                     #print "Connected"
-                    sock.send("PRIVMSG nickserv :IDENTIFY YED35\n\r")
-                    sock.send("PRIVMSG chanserv :halfop #trollsquad %s" % my_nick) 
+                    #self.loger(sock.recv(4096))
+                    sock.send("PRIVMSG chanserv :op #trollsquad Feiris\n\r")
+                    #self.loger(sock.recv(4096)) 
                     self.loger("starting informer")
                     torrent = mp.Process(name= "torrent informer",target=self.informer,args=(sock,sqlcursor,db,defaultEncoding,))
                     torrent.daemon = True
@@ -530,6 +534,7 @@ class MyDaemon(Daemon):
             for x in m:
                 try:
                     url = x
+                    setproctitle("elis: parse from %s" % url )
                     if HOST_RE.findall(url) > 0 : 
                         host = HOST_RE.findall(url)[0]
                     else : host = url
@@ -713,6 +718,7 @@ class MyDaemon(Daemon):
             #sys.stderr.flush()
             channel = self.get_channel(text)
             url = x[0]
+            setproctitle("elis: image parser from %s" % url )
             #print "url: %s" % url
             headers = {'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:23.0) Gecko/20100101 Firefox/23.0'}
             if VK_RE.search(url) :
@@ -797,6 +803,7 @@ class MyDaemon(Daemon):
     def vk_audio(self,sock,text,defaultEncoding,sqlcursor,db,old_track,vkopener,AUDIO_RE,notice=False):
        # sock.send("NOTICE %s :stage 0: send info\n\r" % self.get_nick(text))
         p = mp.current_process()
+        setproctitle("elis: %s" % p.name )
         istr = "add|%s|%s" % (p.name,p.pid)
         queue.put(istr)
         host = "vk.com"
@@ -858,6 +865,7 @@ class MyDaemon(Daemon):
      p = mp.current_process()
      istr = "add|%s|%s" % (p.name,p.pid)
      queue.put(istr)
+     setproctitle("elis: vk Message" % url )
      start = True
      while start :    
         time.sleep(3)
@@ -909,6 +917,7 @@ class MyDaemon(Daemon):
     def send_ping(self,sock):
             global threadLife
             p = mp.current_process()
+            setproctitle("elis: ping")
             sys.stderr.write("%s started pid=%s \n" % (p.name,p.pid) )
             sys.stderr.flush()
             istr = "add|%s|%s" % (p.name,p.pid)
@@ -929,6 +938,7 @@ class MyDaemon(Daemon):
     def informer(self,sock,sqlcursor,db,defaultEncoding):
         headers = {'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:23.0) Gecko/20100101 Firefox/23.0'}
         p = mp.current_process()
+        setproctitle("elis: informer")
         sys.stderr.write("%s started pid=%s \n" % (p.name,p.pid) )
         sys.stderr.flush()
         istr = "add|%s|%s" % (p.name,p.pid)
@@ -1056,6 +1066,7 @@ class MyDaemon(Daemon):
     def updateProxyList(self):
         headers = {'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:23.0) Gecko/20100101 Firefox/23.0'}
         p = mp.current_process()
+        setproctitle("elis: update proxy list")
         sys.stderr.write("%s started pid=%s \n" % (p.name,p.pid) )
         sys.stderr.flush()
         istr = "add|%s|%s" % (p.name,p.pid)
