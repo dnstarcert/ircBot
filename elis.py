@@ -20,7 +20,7 @@
 
 import socket
 import threading
-import sys, inspect, os, tempfile,re,traceback,dns.resolver, ssl , procname
+import sys, inspect, os, tempfile,re,traceback,dns.resolver, ssl , procname , datetime
 import os.path
 import base64,urllib2,urllib
 from urllib2 import Request, urlopen, URLError
@@ -92,6 +92,8 @@ class MyDaemon(Daemon):
             self.processes[name].terminate()
         elif doing == "del":
             del self.processes[name]
+        elif doing == "proxy":
+            self.proxyList = name
         sys.stderr.write(" %s \n" % self.processes )
         sys.stderr.flush()
     
@@ -332,7 +334,7 @@ class MyDaemon(Daemon):
                     pingProcess.daemon = True
                     self.dataProc.append(pingProcess)
                     pingProcess.start()
-                    proxyProcess = mp.Process(name= "proxy pac update process",target=self.updateProxyList, args=())
+                    proxyProcess = mp.Process(name= "proxy pac update process",target=self.updateProxyList, args=(sock,))
                     proxyProcess.daemon = True
                     self.dataProc.append(proxyProcess)
                     proxyProcess.start()
@@ -490,6 +492,8 @@ class MyDaemon(Daemon):
                 #t.setName("informer")
                 t.start()
                 self.dataProc.append(t)
+            elif "$pac" in txt:
+                sock.send("NOTICE %s :%s \n\r" % (nick,self.proxyList) )
         except: pass
 
 
@@ -535,8 +539,11 @@ class MyDaemon(Daemon):
                 try:
                     url = x
                     setproctitle("elis: parse from %s" % url )
+                    dt = datetime.datetime.now() 
                     if HOST_RE.findall(url) > 0 : 
                         host = HOST_RE.findall(url)[0]
+                        hhost = host.split(".")
+                        domain = hhost[len(hhost)-1]
                     else : host = url
                     answers = dns.resolver.query(host, 'A')
                     if VK_RE.search(url) :
@@ -555,6 +562,16 @@ class MyDaemon(Daemon):
                         proxy_handler = urllib2.ProxyHandler({'http': 'http://proxy.antizapret.prostovpn.org:3128',
                                                               'https': 'http://proxy.antizapret.prostovpn.org:3128'}) 
                         #https_sslv3_handler = urllib.request.HTTPSHandler(context=ssl.SSLContext(ssl.PROTOCOL_SSLv3))
+                        opener = urllib2.build_opener(proxy_handler)
+                        opener.addheaders = [('User-Agent', "Mozilla/5.0 (X11; Linux x86_64; rv:23.0) Gecko/20100101 Firefox/23.0"),
+                                             ('Accept','text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'),
+                                             ('Accept-Language','en-US,en;q=0.5'),
+                                             ('Connection','keep-alive'),
+                                             ('host',host)]
+                        res = opener.open(url)
+                    elif domain == "i2p" :
+                        proxy_handler = urllib2.ProxyHandler({'http': '10.1.0.1:4444',
+                                                              'https': '10.1.0.1:4444'})
                         opener = urllib2.build_opener(proxy_handler)
                         opener.addheaders = [('User-Agent', "Mozilla/5.0 (X11; Linux x86_64; rv:23.0) Gecko/20100101 Firefox/23.0"),
                                              ('Accept','text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'),
@@ -600,11 +617,14 @@ class MyDaemon(Daemon):
                         title_text = color.sub("",title_text)
                         title_text_src = title_text.encode(defaultEncoding)
                         title_text = self.unescape(title_text.encode(defaultEncoding)) 
-
+                        dt2 = datetime.datetime.now() 
+                        delta1 = str(dt2 - dt).split(":")[2].split(".")
+                        if int(delta1[0]) != 0 : delta = "%s sec %s ms" % (delta1[0],delta1[1])
+                        else : delta = "%s ms" % delta1[1]
                         if len(title_text) > 300 : title_text = title_text[:300]
                         if text[indx+2:][0:5] != "$add " :
-                            if channel == "#trollsquad" or channel == "#test" : sock.send("PRIVMSG %s :05%s ~desu~\n\r" \
-                                                                            % (channel, title_text))
+                            if channel == "#trollsquad" or channel == "#test" : sock.send("PRIVMSG %s :05%s (%s) ~desu~\n\r" \
+                                                                            % (channel, title_text,delta))
                         
                         else: 
                             sha512hash = sha512(title_text_src).hexdigest()
@@ -1063,25 +1083,64 @@ class MyDaemon(Daemon):
                 sys.stderr.write("replace char %s -> %s \n" % (char,ctring)  )
                 sys.stderr.flush()
         return text
-    def updateProxyList(self):
+    def updateProxyList(self,sock):
         headers = {'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:23.0) Gecko/20100101 Firefox/23.0'}
         p = mp.current_process()
         setproctitle("elis: update proxy list")
         sys.stderr.write("%s started pid=%s \n" % (p.name,p.pid) )
         sys.stderr.flush()
         istr = "add|%s|%s" % (p.name,p.pid)
+        info = ["Angel","Angel|off"]
         queue.put(istr)
+        timer = 0
+        addata = ""
         while True:
-            try: 
-                request = urllib2.Request('http://antizapret.prostovpn.org/proxy.pac', None, headers)
-                f = open(path+"/proxy.pac","w+")
-                f.write(urllib2.urlopen(request).read())
-                f.close()
-            except: time.sleep(60)
-            time.sleep(18000)
+            if timer <=0 :
+                try: 
+                    ddate = ""
+                    diff1 = []
+                    diff2 = []
+                    request = urllib2.Request('http://antizapret.prostovpn.org/proxy.pac', None, headers)
+                    try : 
+                        f = open(path+"/proxy.pac","r+")
+                        date = f.read()
+                        ddate2 = date.split("\n")
+                        ddate = date.split("\n")[1].split(" on ")[1].strip().rstrip() 
+                        f.close()
+                    except : setproctitle("elis: update proxy list. error " )
+                    ddata = urllib2.urlopen(request).read()
+                    ddata2 = ddata.split("\n")
+                    addata= ddata.split("\n")[1].split(" on ")[1].strip().rstrip()
+                    if ddate != addata :
+                        ff = open(path+"/proxy.pac","w+")
+                        ff.write(ddata)
+                        ff.close()
+                        for data1 in ddate2 :
+                            if not data1 in ddata2:
+                                diff1.append(data1)
+                        for data1 in ddata2 :
+                            if not data1 in ddate2:
+                                diff2.append(data1)
+                        for i in info:
+                            total = len(ddata2) - 13
+                            added = len(diff2) - 1 
+                            deleted = len(diff1) - 1
+                            #sock.send("PRIVMSG %s :03proxy.pac modified: %s 12add:%s 04del:%s 06total IP's in blacklist = %s ~desu~\n\r" % (i,addata,added,deleted,total))
+                        sock.send("PRIVMSG %s :03proxy.pac modified: %s 02add:%s 04del:%s 10total IP's in blacklist = %s ~desu~\n\r" % ("#test",addata,added,deleted,total))
+                        q = "proxy|03proxy.pac modified: %s 02add:%s 04del:%s 10total IP's in blacklist = %s ~desu~|%s" % (addata,added,deleted,total,p.pid)
+                        queue.put(q)
+                    mod_time = time.ctime(os.path.getmtime(path+"/proxy.pac"))
+                    setproctitle("elis: update proxy list. proxy.pac last modified: %s" % addata )
+                    timer = 18000
+                except: 
+                    setproctitle("elis: update proxy list. error " )
+                    time.sleep(60)  
+            time.sleep(60)
+            timer -= 60
+            setproctitle("elis: update proxy list. proxy.pac last modified: %s. next update after %s seconds " % (addata,timer) )
         istr = "del|%s|%s" % (p.name,p.pid)
         queue.put(istr)
-
+##Angel|off
 if __name__ == "__main__":
     daemon = MyDaemon('/tmp/elis.pid')
     if len(sys.argv) == 2:
