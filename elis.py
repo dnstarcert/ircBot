@@ -77,7 +77,7 @@ vkopener = urllib2.build_opener(urllib2.HTTPCookieProcessor(vkcookie))
 
 class QueueManager(BaseManager): pass
 queue = mp.Queue()
-checkIt = mp.Queue()
+
 #processes = dict()
 class MyDaemon(Daemon): 
 #class MyDaemon():    
@@ -215,8 +215,8 @@ class MyDaemon(Daemon):
         global vkcookie,path,vkopener
         p = mp.current_process()
         setproctitle("elis: vk authentification")
-        istr = "add|%s|%s" % (p.name,p.pid)
-        queue.put(istr)
+        greeting_maker=Pyro4.Proxy(self.uri)
+        greeting_maker.proces("add", p.name, p.pid)
         #self.loger("send login info")
         host = "vk.com"
         vkopener.addheaders = [('User-Agent', "Mozilla/5.0 (X11; Linux x86_64; rv:23.0) Gecko/20100101 Firefox/23.0"),
@@ -232,8 +232,7 @@ class MyDaemon(Daemon):
         response = vkopener.open(url,data_encoded)
         #self.loger(response.read())
         vkcookie.save("%s/vk.txt" % path)
-        istr = "del|%s|%s" % (p.name,p.pid)
-        queue.put(istr)
+        greeting_maker.proces("del", p.name, p.pid)
 
 
     def processes1(self):
@@ -327,113 +326,117 @@ class MyDaemon(Daemon):
                 #vk.start()
     
     def worker(self,text,onStart,sock,my_nick,defaultEncoding,channels,sqlcursor,db):
-            #print text[:-2]
-            #self.loger("trying to start bot : %s" % text[:-2])
-            if text.find("PING :") == 0:
-                self.loger("sending PONG")
-                sock.send(u"%s\n\r" % (text.replace("PING", "PONG")))
-            elif text.find("Global Users:") > 0 or text.find("global Users") > 0:
-                if onStart == True:
-                    onStart = False
-                    #print "JOIN: "
-                    sock.send("VHOST vk lls39vj\n\r")
-                    sock.send("PRIVMSG nickserv :IDENTIFY YED35\n\r")
-                    charset = self.detect_encoding(text)
-                    for channel in channels :
-                        sock.send('JOIN %s \n\r' % channel)
-                    #print "Connected"
-                    #self.loger(sock.recv(4096))
-                    sock.send("PRIVMSG chanserv :op #trollsquad Feiris\n\r")
-                    #self.loger(sock.recv(4096)) 
-                    self.loger("starting informer")
-                    torrent = mp.Process(name= "torrent informer",target=self.informer,args=(sock,sqlcursor,db,defaultEncoding,))
-                    torrent.daemon = True
-                    #t.setName("informer")
-                    torrent.start()
-                    self.dataProc.append(torrent)
-                    time.sleep(1)
-                    self.loger("starting ping")
-                    pingProcess = mp.Process(name= "ping process",target=self.send_ping, args=(sock,))
-                    pingProcess.daemon = True
-                    self.dataProc.append(pingProcess)
-                    pingProcess.start()
-                    proxyProcess = mp.Process(name= "proxy pac update process",target=self.updateProxyList, args=(sock,))
-                    proxyProcess.daemon = True
-                    self.dataProc.append(proxyProcess)
-                    proxyProcess.start()
-                    time.sleep(1)
-                    if(self.vk_user !='' and self.vk_passwd !=''):
-                        self.loger("trying login to vk")
-                        vk_thread = mp.Process(name= "VK authentification",target=self.vkauth)
-                        vk_thread.daemon = True
-                        #vk_thread.setName("VK authentification")
-                        vk_thread.start()
-                        self.dataProc.append(vk_thread)
-                    time.sleep(1)
-                    self.loger("trying to start thread")
-                    t = threading.Thread(target=self.threadNumber, args=(sock,))
-                    t.daemon = True
-                    t.setName("threadNumber")
-                    t.start()
-                    
-                    #self.dataProc.append(t)
-                    #self.vk_message(sock,defaultEncoding,0)
-                    #vk = threading.Thread(target=self.vk_message, args=(sock,defaultEncoding,0,sqlcursor,db))
-                    #vk.daemon = True
-                    #vk.setName("VK Message reader")
-                    #vk.start()
-    
-            elif "JOIN :" in text: pass
-                #sock.send("PRIVMSG %s :VERSION\n\r" % get_nick(recv_data))
-            elif ":VERSION " in text:
-                indx = text.rfind("VERSION")
-                #print indx
-                #print recv_data[indx:-3]
-            elif " KICK #" in text:
-                print "KICK"
-                p = re.compile(r"( [a-zA-Z0-9].*) :")
-                text2 = p.findall(text)[0]
-                indx = text2.rfind("#")
-                indx2 = text2[indx:].rfind(" ")
-                indx3 = text.rfind(":")
-                reason = text[indx3+1:]
-                channel = text2[indx:indx + indx2]
-                us_nick = text2[indx+indx2 + 1:]
-                if us_nick == my_nick[5:-2]:
-                   sock.send('JOIN %s \n\r' % channel)
-            elif "VERSION" in text:
-                #chat_box.append(repr(recv_data.decode("cp1251")))
-                try: 
-                    nick = self.get_nick(text)
-                except:
-                    nick = "py-ctcp"
-                sock.send("NOTICE %s :VERSION Simple bot writen on python\n\r" % nick)
-            elif "NICK" in text: pass
-                #if get_nick(text) == my_nick:
-                #    indx = text.rfind("NICK") + 6
-                #    nick.setText(text[indx:])
-                #    chat_box["RAW"].append("<font color=red>[%s] </font>\
-                #        <font color=orange>Your nick is %s now</font>" \
-                #        % (time.strftime("%H:%M:%S") ,text[indx:]))
-    
-            elif "PONG" in text: pass
-    
-            elif "PRIVMSG" in text: 
-                t = threading.Thread(target=self.privmsg, args=(text,sock,sqlcursor,db,defaultEncoding,))
+        #print text[:-2]
+        #self.loger("trying to start bot : %s" % text[:-2])
+        #sys.stderr.write("RAW TEXT: %s \n" % text )
+        #sys.stderr.flush()
+        if text.find("PING :") == 0:
+            self.loger("sending PONG")
+            sock.send(u"%s\n\r" % (text.replace("PING", "PONG")))
+        elif text.find("Global Users:") > 0 or text.find("global Users") > 0:
+            if onStart == True:
+                onStart = False
+                #print "JOIN: "
+                sock.send("VHOST vk lls39vj\n\r")
+                sock.send("PRIVMSG nickserv :IDENTIFY YED35\n\r")
+                charset = self.detect_encoding(text)
+                for channel in channels :
+                    sock.send('JOIN %s \n\r' % channel)
+                #print "Connected"
+                #self.loger(sock.recv(4096))
+                sock.send("PRIVMSG chanserv :op #trollsquad Feiris\n\r")
+                #self.loger(sock.recv(4096)) 
+                self.loger("starting informer")
+                torrent = mp.Process(name= "torrent informer",target=self.informer,args=(sock,sqlcursor,db,defaultEncoding,))
+                torrent.daemon = True
+                #t.setName("informer")
+                torrent.start()
+                self.dataProc.append(torrent)
+                time.sleep(1)
+                self.loger("starting ping")
+                pingProcess = mp.Process(name= "ping process",target=self.send_ping, args=(sock,))
+                pingProcess.daemon = True
+                self.dataProc.append(pingProcess)
+                pingProcess.start()
+                proxyProcess = mp.Process(name= "proxy pac update process",target=self.updateProxyList, args=(sock,))
+                proxyProcess.daemon = True
+                self.dataProc.append(proxyProcess)
+                proxyProcess.start()
+                time.sleep(1)
+                if(self.vk_user !='' and self.vk_passwd !=''):
+                    self.loger("trying login to vk")
+                    vk_thread = mp.Process(name= "VK authentification",target=self.vkauth)
+                    vk_thread.daemon = True
+                    #vk_thread.setName("VK authentification")
+                    vk_thread.start()
+                    self.dataProc.append(vk_thread)
+                time.sleep(1)
+                self.loger("trying to start thread")
+                t = threading.Thread(target=self.threadNumber, args=(sock,))
                 t.daemon = True
-                t.setName("privmsg")
-                t.start()
-            elif "NOTICE" in text:
-            	t = threading.Thread(target=self.notice, args=(text,sock,sqlcursor,db,defaultEncoding,))
-                t.daemon = True
-                t.setName("notice")
-                t.start()
-            else: 
-                print ("Received data: ",
-                    text[:-2].decode(defaultEncoding).encode("utf-8"))
+                t.setName("threadNumber")
+                t.start()               
+                #self.dataProc.append(t)
+                #self.vk_message(sock,defaultEncoding,0)
+                #vk = threading.Thread(target=self.vk_message, args=(sock,defaultEncoding,0,sqlcursor,db))
+                #vk.daemon = True
+                #vk.setName("VK Message reader")
+                #vk.start()
+                #sys.stderr.write("_INITIAL_ TEXT: %s \n" % text )
+                #sys.stderr.flush()
+        elif "JOIN :" in text: pass
+            #sock.send("PRIVMSG %s :VERSION\n\r" % get_nick(recv_data))
+        elif ":VERSION " in text:
+            indx = text.rfind("VERSION")
+            #print indx
+            #print recv_data[indx:-3]
+        elif " KICK #" in text:
+            print "KICK"
+            p = re.compile(r"( [a-zA-Z0-9].*) :")
+            text2 = p.findall(text)[0]
+            indx = text2.rfind("#")
+            indx2 = text2[indx:].rfind(" ")
+            indx3 = text.rfind(":")
+            reason = text[indx3+1:]
+            channel = text2[indx:indx + indx2]
+            us_nick = text2[indx+indx2 + 1:]
+            if us_nick == my_nick[5:-2]:
+               sock.send('JOIN %s \n\r' % channel)
+        elif "VERSION" in text:
+            #chat_box.append(repr(recv_data.decode("cp1251")))
+            try: 
+                nick = self.get_nick(text)
+            except:
+                nick = "py-ctcp"
+            sock.send("NOTICE %s :VERSION Simple bot writen on python\n\r" % nick)
+        elif "NICK" in text: pass
+            #if get_nick(text) == my_nick:
+            #    indx = text.rfind("NICK") + 6
+            #    nick.setText(text[indx:])
+            #    chat_box["RAW"].append("<font color=red>[%s] </font>\
+            #        <font color=orange>Your nick is %s now</font>" \
+            #        % (time.strftime("%H:%M:%S") ,text[indx:]))
+        elif "PONG" in text: pass
+        elif "PRIVMSG" in text: 
+            t = threading.Thread(target=self.privmsg, args=(text,sock,sqlcursor,db,defaultEncoding,))
+            t.daemon = True
+            t.setName("privmsg")
+            t.start()
+        elif "NOTICE" in text:
+            t = threading.Thread(target=self.notice, args=(text,sock,sqlcursor,db,defaultEncoding,))
+            t.daemon = True
+            t.setName("notice")
+            t.start()
+        else: 
+            #sys.stderr.write("Received data: ",
+            #    text[:-2].decode(defaultEncoding).encode("utf-8"))
+            sys.stderr.write("ELSE TEXT: %s \n" % text )
+            sys.stderr.flush()
     
     def privmsg(self,text,sock,sqlcursor,db,defaultEncoding):
         #global base,dbl
+        #sys.stderr.write("worker : %s \n" % text )
+        #sys.stderr.flush()
         channel = self.get_channel(text)
         nick = self.get_nick(text)
         indx = text.rfind("PRIVMSG") + len(channel) + 8
@@ -468,7 +471,12 @@ class MyDaemon(Daemon):
                 t.start()
                 self.dataProc.append(t)
         except: pass
-        
+        if "300" in text and channel == "#trollsquad":
+            sock.send("PRIVMSG %s :%s, Отсоси у тракториста ~desu~\n\r" % (channel,nick))
+        #if "да" in text or "Да" in text and channel == "#trollsquad":
+        #    sock.send("PRIVMSG %s :Пизда ~desu~\n\r" % (channel))
+        #if "нет" in text or "Нет" in text and channel == "#trollsquad":
+        #    sock.send("PRIVMSG %s :Пидора ответ ~desu~\n\r" % (channel))
         if text[indx+2:][0:5] == "$last" : 
             sqlcursor.execute(""" SELECT id,topic,link,change_data FROM torrent WHERE changed = '1' """)
             ident = sqlcursor.fetchall()
@@ -550,220 +558,217 @@ class MyDaemon(Daemon):
 
 
     def http_title(self,text, channel,sock,sqlcursor,db,defaultEncoding,trying = 0):
-            p = mp.current_process()
-            istr = "add|%s|%s" % (p.name,p.pid)
-            queue.put(istr)
-            proxy = IP_RE.findall(open(path + "/proxy.pac","r").read())
-            headers = {'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:23.0) Gecko/20100101 Firefox/23.0'}
-            m = HTTP_RE.findall(text)
-            indx = text.rfind("PRIVMSG") + len(channel) + 8
-            #print "m=%s" % m
-            for x in m:
-                try:
-                    url = x
-                    setproctitle("elis: parse from %s" % url )
-                    dt = datetime.datetime.now() 
-                    if HOST_RE.findall(url) > 0 : 
-                        host = HOST_RE.findall(url)[0]
-                        hhost = host.split(".")
-                        domain = hhost[len(hhost)-1]
-                    else : host = url
-                    answers = dns.resolver.query(host, 'A')
-                    if VK_RE.search(url) :
-                        vkcookie.load("%s/vk.txt" % path)
-                        vkopener = urllib2.build_opener(urllib2.HTTPCookieProcessor(vkcookie))
-                        host = "vk.com"
-                        vkopener.addheaders = [('User-Agent', "Mozilla/5.0 (X11; Linux x86_64; rv:23.0) Gecko/20100101 Firefox/23.0"),
-                       ('Accept','text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'),
-                       ('Accept-Language','en-US,en;q=0.5'),
-                       ('Connection','keep-alive'),
-                       ('host',host)]
-                        res =vkopener.open(url)
-                    elif str(answers[0]) in proxy : 
-                        #sys.stderr.write(str(answers[0]))
-                        #sys.stderr.flush()
-                        proxy_handler = urllib2.ProxyHandler({'http': 'http://proxy.antizapret.prostovpn.org:3128',
-                                                              'https': 'http://proxy.antizapret.prostovpn.org:3128'}) 
-                        #https_sslv3_handler = urllib.request.HTTPSHandler(context=ssl.SSLContext(ssl.PROTOCOL_SSLv3))
-                        opener = urllib2.build_opener(proxy_handler)
-                        opener.addheaders = [('User-Agent', "Mozilla/5.0 (X11; Linux x86_64; rv:23.0) Gecko/20100101 Firefox/23.0"),
-                                             ('Accept','text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'),
-                                             ('Accept-Language','en-US,en;q=0.5'),
-                                             ('Connection','keep-alive'),
-                                             ('host',host)]
-                        res = opener.open(url)
-                    elif domain == "i2p" :
-                        proxy_handler = urllib2.ProxyHandler({'http': '10.1.0.1:4444',
-                                                              'https': '10.1.0.1:4444'})
-                        opener = urllib2.build_opener(proxy_handler)
-                        opener.addheaders = [('User-Agent', "Mozilla/5.0 (X11; Linux x86_64; rv:23.0) Gecko/20100101 Firefox/23.0"),
-                                             ('Accept','text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'),
-                                             ('Accept-Language','en-US,en;q=0.5'),
-                                             ('Connection','keep-alive'),
-                                             ('host',host)]
-                        res = opener.open(url)
-                    else :
-                        request = urllib2.Request(url, None, headers)
-                        res = urllib2.urlopen(request)
-                    #print res.headers
-                    info = res.info()
-                    #print info
-                    mimetype = info.getmaintype()
-                    ext = info.getsubtype()
-                    m = SITE_RE.search(url)
-                    site = m.group("site")
-                    sqlcursor.execute("""SELECT `id` from `ignore` where `url` LIKE '%%%s%%' """ %  site)
-                    #contentSize = res.headers['content-length']
-                    identSite = sqlcursor.fetchone()
-                    #self.loger("%s->%s" %(repr(site),identSite))
-                    if mimetype != "image" and mimetype == "text" :
-                        data = res.read()
-                        if res.info().get('Content-Encoding') == 'gzip':
-                            buf = StringIO.StringIO( data)
-                            f = gzip.GzipFile(fileobj=buf)
-                            data = f.read()
-                        sech = re.compile(r"<title>(.*)<\/title>", re.I).findall(data.replace("\n",""))
-                        nick = self.get_nick(text)
-                        #title = sech[0]
-                        try:
-                            title = sech[0]
-                            charset = self.detect_encoding(sech[0])
-                        except:
-                            self.loger("tryeng detect encoding")
-                            charset,title = self.http_title_cycle(url)
-                            self.loger("except {url:'%s',charset:'%s',title:'%s'}" % (url,charset,title))
-                        #self.loger(res.msg)
-                        #self.loger(sech[0].decode(charset))
-                        trying = 0
-                        title_text = title.decode(charset).replace("\n","").replace("\r","")
-                        color = re.compile(r'([0-9]{1,2})')
-                        title_text = color.sub("",title_text)
-                        title_text_src = title_text.encode(defaultEncoding)
-                        title_text = self.unescape(title_text.encode(defaultEncoding)) 
-                        dt2 = datetime.datetime.now() 
-                        delta1 = str(dt2 - dt).split(":")[2].split(".")
-                        if int(delta1[0]) != 0 : delta = "%s sec %s ms" % (delta1[0],delta1[1])
-                        else : delta = "%s ms" % delta1[1]
-                        if len(title_text) > 300 : title_text = title_text[:300]
-                        if text[indx+2:][0:5] != "$add " :
-                            if channel == "#trollsquad" or channel == "#test" : sock.send("PRIVMSG %s :05%s (%s) ~desu~\n\r" \
-                                                                            % (channel, title_text,delta))
-                        
-                        else: 
-                            sha512hash = sha512(title_text_src).hexdigest()
-                            sqlcursor.execute("""SELECT id from torrent where topic_sha LIKE '%s' """ %  sha512hash)
-                            ident = sqlcursor.fetchone()
-                            if ident == None:
-                                sql = """INSERT INTO torrent(id,nick,link,topic,topic_sha,changed,change_data) VALUES (NULL,'%s','%s','%s','%s','0',NULL)""" % (nick,url,title_text_src,sha512hash)
-                                try :
-                                    sqlcursor.execute(sql)
-                                    db.commit()
-                                except MySQLdb.Error, e: 
-                                    if db:
-                                       db.rollback()
-                                    self.loger("Error %d: %s" % (e.args[0],e.args[1]))
-                                if channel == "#trollsquad" or channel == "#test" : sock.send("PRIVMSG %s :Torrent 03%s was successfully added ~desu~\n\r" \
-                                                                            % (channel, url ))
-                            elif channel == "#trollsquad" or channel == "#test" : sock.send("PRIVMSG %s :05%s ~desu~\n\r" \
-                                                                            % (channel, "torrent already exists" ))
-                       
-                        if VIDEO_RE.search(data) and YOUTUBE_RE.search(url):
-                            
-                            m = VIDEO_RE.search(data)
-                            videoid = m.group("videoid")
-                            sql = """INSERT INTO `video` (autor,videoid,title,viewed) SELECT * FROM (SELECT '%s','%s','%s','0') AS tmp WHERE NOT EXISTS (SELECT `videoid` FROM `video` WHERE `videoid` = '%s') LIMIT 1; """ \
-                                                                                            % (nick,videoid,title_text,videoid)
+        p = mp.current_process()
+        #sock.send("PRIVMSG %s : у тракториста ~desu~\n\r" % (channel))
+        greeting_maker=Pyro4.Proxy(self.uri)
+        greeting_maker.proces("add", p.name, p.pid)
+        proxy = IP_RE.findall(open(path + "/proxy.pac","r").read())
+        headers = {'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:23.0) Gecko/20100101 Firefox/23.0'}
+        m = HTTP_RE.findall(text)
+        indx = text.rfind("PRIVMSG") + len(channel) + 8
+        #print "m=%s" % m
+        for x in m:
+            try:
+                url = x
+                setproctitle("elis: parse from %s" % url )
+                dt = datetime.datetime.now() 
+                if HOST_RE.findall(url) > 0 : 
+                    host = HOST_RE.findall(url)[0]
+                    hhost = host.split(".")
+                    domain = hhost[len(hhost)-1]
+                else : host = url
+                answers = dns.resolver.query(host, 'A')
+                if VK_RE.search(url) :
+                    vkcookie.load("%s/vk.txt" % path)
+                    vkopener = urllib2.build_opener(urllib2.HTTPCookieProcessor(vkcookie))
+                    host = "vk.com"
+                    vkopener.addheaders = [('User-Agent', "Mozilla/5.0 (X11; Linux x86_64; rv:23.0) Gecko/20100101 Firefox/23.0"),
+                   ('Accept','text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'),
+                   ('Accept-Language','en-US,en;q=0.5'),
+                   ('Connection','keep-alive'),
+                   ('host',host)]
+                    res =vkopener.open(url)
+                elif str(answers[0]) in proxy : 
+                    #sys.stderr.write(str(answers[0]))
+                    #sys.stderr.flush()
+                    proxy_handler = urllib2.ProxyHandler({'http': 'http://proxy.antizapret.prostovpn.org:3128',
+                                                          'https': 'http://proxy.antizapret.prostovpn.org:3128'}) 
+                    #https_sslv3_handler = urllib.request.HTTPSHandler(context=ssl.SSLContext(ssl.PROTOCOL_SSLv3))
+                    opener = urllib2.build_opener(proxy_handler)
+                    opener.addheaders = [('User-Agent', "Mozilla/5.0 (X11; Linux x86_64; rv:23.0) Gecko/20100101 Firefox/23.0"),
+                                         ('Accept','text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'),
+                                         ('Accept-Language','en-US,en;q=0.5'),
+                                         ('Connection','keep-alive'),
+                                         ('host',host)]
+                    res = opener.open(url)
+                elif domain == "i2p" :
+                    proxy_handler = urllib2.ProxyHandler({'http': '10.1.0.1:4444',
+                                                          'https': '10.1.0.1:4444'})
+                    opener = urllib2.build_opener(proxy_handler)
+                    opener.addheaders = [('User-Agent', "Mozilla/5.0 (X11; Linux x86_64; rv:23.0) Gecko/20100101 Firefox/23.0"),
+                                         ('Accept','text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'),
+                                         ('Accept-Language','en-US,en;q=0.5'),
+                                         ('Connection','keep-alive'),
+                                         ('host',host)]
+                    res = opener.open(url)
+                else :
+                    request = urllib2.Request(url, None, headers)
+                    res = urllib2.urlopen(request)
+                #print res.headers
+                info = res.info()
+                #print info
+                mimetype = info.getmaintype()
+                ext = info.getsubtype()
+                m = SITE_RE.search(url)
+                site = m.group("site")
+                sqlcursor.execute("""SELECT `id` from `ignore` where `url` LIKE '%%%s%%' """ %  site)
+                #contentSize = res.headers['content-length']
+                identSite = sqlcursor.fetchone()
+                #self.loger("%s->%s" %(repr(site),identSite))
+                if mimetype != "image" and mimetype == "text" :
+                    data = res.read()
+                    if res.info().get('Content-Encoding') == 'gzip':
+                        buf = StringIO.StringIO( data)
+                        f = gzip.GzipFile(fileobj=buf)
+                        data = f.read()
+                    sech = re.compile(r"<title>(.*)<\/title>", re.I).findall(data.replace("\n",""))
+                    nick = self.get_nick(text)
+                    #title = sech[0]
+                    try:
+                        title = sech[0]
+                        charset = self.detect_encoding(sech[0])
+                    except:
+                        self.loger("tryeng detect encoding")
+                        charset,title = self.http_title_cycle(url)
+                        self.loger("except {url:'%s',charset:'%s',title:'%s'}" % (url,charset,title))
+                    #self.loger(res.msg)
+                    #self.loger(sech[0].decode(charset))
+                    trying = 0
+                    title_text = title.decode(charset).replace("\n","").replace("\r","")
+                    color = re.compile(r'([0-9]{1,2})')
+                    title_text = color.sub("",title_text)
+                    title_text_src = title_text.encode(defaultEncoding)
+                    title_text = self.unescape(title_text.encode(defaultEncoding)) 
+                    dt2 = datetime.datetime.now() 
+                    delta1 = str(dt2 - dt).split(":")[2].split(".")
+                    if int(delta1[0]) != 0 : delta = "%s sec %s ms" % (delta1[0],delta1[1])
+                    else : delta = "%s ms" % delta1[1]
+                    if len(title_text) > 300 : title_text = title_text[:300]
+                    if text[indx+2:][0:5] != "$add " :
+                        if channel == "#trollsquad" or channel == "#test" : sock.send("PRIVMSG %s :05%s (%s) ~desu~\n\r" \
+                                                                        % (channel, title_text,delta))
+                    
+                    else: 
+                        sha512hash = sha512(title_text_src).hexdigest()
+                        sqlcursor.execute("""SELECT id from torrent where topic_sha LIKE '%s' """ %  sha512hash)
+                        ident = sqlcursor.fetchone()
+                        if ident == None:
+                            sql = """INSERT INTO torrent(id,nick,link,topic,topic_sha,changed,change_data) VALUES (NULL,'%s','%s','%s','%s','0',NULL)""" % (nick,url,title_text_src,sha512hash)
                             try :
                                 sqlcursor.execute(sql)
                                 db.commit()
                             except MySQLdb.Error, e: 
                                 if db:
                                    db.rollback()
-                                #self.loger("Error %d: %s" % (e.args[0],e.args[1]))
-
-                        res.close()
-                    elif mimetype == "image" and identSite == None:
-                        new_file = res.read()
-                        f = StringIO.StringIO(new_file)
-                        img = Image.open(f)
-                        lut = [255 if x > 200 else 0 for x in xrange(256)]
-                        #self.loger("res len:%s -> file len:%s" % (len(new_file),contentSize ) )
-                        out = img.convert('L').point(lut, '1')
-                        histogram = ",".join(str(i) for i in img.histogram())
-                        md5hash = md5(f.getvalue()).hexdigest()
-                        sha512hash = sha512(f.getvalue()).hexdigest()
-                        m = md5(url.replace("/","_")).hexdigest()
-                        imagePath = "%s/images/%s.%s" % (path,m,ext) 
-                        #imagePath = "%s/images/%s" % (path,url.replace("/","_")) 
-                        fullname = "%s.%s" % (m,ext)
-                        sqlcursor.execute("""SELECT id from pics where md5 LIKE '%s' """ %  md5hash)
-                        ident = sqlcursor.fetchone()
-                        #sqlcursor.execute("SELECT id FROM `pics`")
-                        #cnt = sqlcursor.rowcount - 100
-                        #sqlcursor.execute("""SELECT id,histogram from pics LIMIT %s,100 """ % cnt)
-                        #name = sqlcursor.fetchall()
-                        #for ih in xrange(len(name)):
-                        #    if ih+1 != len(name):
-                        #        xh =  [int(ii) for ii in name[ih][1].split(",")][255]
-                        #        for y in xrange( ih+1 , len(name) , 1 ):
-                        #            iy = [int(ii) for ii in name[y][1].split(",")][255]
-                        #            if (xh-iy) < 0:
-                        #                diff = (-(xh-iy))
-                        #            else: diff = (xh-iy)
-                        #            if diff < 30  : 
-                        #               ident = name[ih][0]
-                        #self.loger(ident)
-                        if ident == None:
-                            #img.save("%s" % (imagePath))
-                            new_file2 = open("%s" % imagePath, 'w+')
-                            new_file2.write(new_file)
-                            new_file2.close()
-                            nick = self.get_nick(text)
-                            sqlcursor.execute("INSERT INTO binary_data VALUES(NULL, %s,%s,%s)", (md5hash,f.getvalue(), fullname,))
-                            sql = """INSERT INTO pics(id,name,path,autor,datetime,rating,md5,sha512,histogram) VALUES (NULL,'%s','%s','%s',NULL,'0','%s','%s','%s')""" % (fullname,imagePath,nick,md5hash,sha512hash,histogram) 
+                                self.loger("Error %d: %s" % (e.args[0],e.args[1]))
+                            if channel == "#trollsquad" or channel == "#test" : sock.send("PRIVMSG %s :Torrent 03%s was successfully added ~desu~\n\r" \
+                                                                        % (channel, url ))
+                        elif channel == "#trollsquad" or channel == "#test" : sock.send("PRIVMSG %s :05%s ~desu~\n\r" \
+                                                                        % (channel, "torrent already exists" ))
+                   
+                    if VIDEO_RE.search(data) and YOUTUBE_RE.search(url):
+                        
+                        m = VIDEO_RE.search(data)
+                        videoid = m.group("videoid")
+                        sql = """INSERT INTO `video` (autor,videoid,title,viewed) SELECT * FROM (SELECT '%s','%s','%s','0') AS tmp WHERE NOT EXISTS (SELECT `videoid` FROM `video` WHERE `videoid` = '%s') LIMIT 1; """ \
+                                                                                        % (nick,videoid,title_text,videoid)
+                        try :
                             sqlcursor.execute(sql)
                             db.commit()
-                        elif channel == "#trollsquad" or channel == "#test" : 
-                            sqlcursor.execute("""SELECT `datetime`,`autor` FROM `pics` WHERE `id` LIKE '%s' """ % ident)
-                            autorAndDate = sqlcursor.fetchone()
-                            #self.loger(autorAndDate)
-                            sock.send("PRIVMSG %s :04%s %s http://pictures.gendalf.info/file/%s/ uploaded by %s ~baka~\n\r" \
-                                                                            % (channel, "[:]||||||[:]",autorAndDate[0],md5hash,autorAndDate[1]))
-                        res.close()
-                    elif info.getsubtype() == "x-bittorrent":
+                        except MySQLdb.Error, e: 
+                            if db:
+                               db.rollback()
+                            #self.loger("Error %d: %s" % (e.args[0],e.args[1]))
+                    res.close()
+                elif mimetype == "image" and identSite == None:
+                    new_file = res.read()
+                    f = StringIO.StringIO(new_file)
+                    img = Image.open(f)
+                    lut = [255 if x > 200 else 0 for x in xrange(256)]
+                    #self.loger("res len:%s -> file len:%s" % (len(new_file),contentSize ) )
+                    out = img.convert('L').point(lut, '1')
+                    histogram = ",".join(str(i) for i in img.histogram())
+                    md5hash = md5(f.getvalue()).hexdigest()
+                    sha512hash = sha512(f.getvalue()).hexdigest()
+                    m = md5(url.replace("/","_")).hexdigest()
+                    imagePath = "%s/images/%s.%s" % (path,m,ext) 
+                    #imagePath = "%s/images/%s" % (path,url.replace("/","_")) 
+                    fullname = "%s.%s" % (m,ext)
+                    sqlcursor.execute("""SELECT id from pics where md5 LIKE '%s' """ %  md5hash)
+                    ident = sqlcursor.fetchone()
+                    #sqlcursor.execute("SELECT id FROM `pics`")
+                    #cnt = sqlcursor.rowcount - 100
+                    #sqlcursor.execute("""SELECT id,histogram from pics LIMIT %s,100 """ % cnt)
+                    #name = sqlcursor.fetchall()
+                    #for ih in xrange(len(name)):
+                    #    if ih+1 != len(name):
+                    #        xh =  [int(ii) for ii in name[ih][1].split(",")][255]
+                    #        for y in xrange( ih+1 , len(name) , 1 ):
+                    #            iy = [int(ii) for ii in name[y][1].split(",")][255]
+                    #            if (xh-iy) < 0:
+                    #                diff = (-(xh-iy))
+                    #            else: diff = (xh-iy)
+                    #            if diff < 30  : 
+                    #               ident = name[ih][0]
+                    #self.loger(ident)
+                    if ident == None:
+                        #img.save("%s" % (imagePath))
+                        new_file2 = open("%s" % imagePath, 'w+')
+                        new_file2.write(new_file)
+                        new_file2.close()
                         nick = self.get_nick(text)
-                        self.loger(nick)
-                        if nick == "Gendalf":
-                            self.loger(url)
-                            tc = transmissionrpc.Client('10.1.0.1', port=9091)
-                            self.loger("connected")
-                            torrent = tc.add_torrent(url)
-                            self.loger(torrent)
-                            sock.send("PRIVMSG %s :torrent file: %s\n\r" % (nick,str(torrent).encode(defaultEncoding) ) )
-                
-
-                except URLError, e: 
-                    if hasattr(e, 'reason'): 
-                        txt = 'We failed to reach a server. Reason: %s' % e.reason
-                        if channel == "#trollsquad" or channel == "#test" : sock.send("PRIVMSG %s :04%s ~baka~\n\r" \
-                                                                            % (channel, self.unescape(txt)))
-                        #print 'We failed to reach a server.'
-                        #print 'Reason: ', e.reason
-                    elif hasattr(e, 'code'): 
-                        txt = 'The server couldn\'t fulfill the request. Error code: %s' % e.code
-                        if channel == "#trollsquad" or channel == "#test" : sock.send("PRIVMSG %s :04%s ~baka~\n\r" \
-                                                                            % (channel, self.unescape(txt)))
-                        #print 'The server couldn\'t fulfill the request.'
-                        #print 'Error code: ', e.code
-            istr = "del|%s|%s" % (p.name,p.pid)
-            queue.put(istr)
+                        sqlcursor.execute("INSERT INTO binary_data VALUES(NULL, %s,%s,%s)", (md5hash,f.getvalue(), fullname,))
+                        sql = """INSERT INTO pics(id,name,path,autor,datetime,rating,md5,sha512,histogram) VALUES (NULL,'%s','%s','%s',NULL,'0','%s','%s','%s')""" % (fullname,imagePath,nick,md5hash,sha512hash,histogram) 
+                        sqlcursor.execute(sql)
+                        db.commit()
+                    elif channel == "#trollsquad" or channel == "#test" : 
+                        sqlcursor.execute("""SELECT `datetime`,`autor` FROM `pics` WHERE `id` LIKE '%s' """ % ident)
+                        autorAndDate = sqlcursor.fetchone()
+                        #self.loger(autorAndDate)
+                        sock.send("PRIVMSG %s :04%s %s http://pictures.gendalf.info/file/%s/ uploaded by %s ~baka~\n\r" \
+                                                                        % (channel, "[:]||||||[:]",autorAndDate[0],md5hash,autorAndDate[1]))
+                    res.close()
+                elif info.getsubtype() == "x-bittorrent":
+                    nick = self.get_nick(text)
+                    self.loger(nick)
+                    if nick == "Gendalf":
+                        self.loger(url)
+                        tc = transmissionrpc.Client('10.1.0.1', port=9091)
+                        self.loger("connected")
+                        torrent = tc.add_torrent(url)
+                        self.loger(torrent)
+                        sock.send("PRIVMSG %s :torrent file: %s\n\r" % (nick,str(torrent).encode(defaultEncoding) ) )
+            except URLError, e: 
+                if hasattr(e, 'reason'): 
+                    txt = 'We failed to reach a server. Reason: %s' % e.reason
+                    if channel == "#trollsquad" or channel == "#test" : sock.send("PRIVMSG %s :04%s ~baka~\n\r" \
+                                                                        % (channel, self.unescape(txt)))
+                    #print 'We failed to reach a server.'
+                    #print 'Reason: ', e.reason
+                elif hasattr(e, 'code'): 
+                    txt = 'The server couldn\'t fulfill the request. Error code: %s' % e.code
+                    if channel == "#trollsquad" or channel == "#test" : sock.send("PRIVMSG %s :04%s ~baka~\n\r" \
+                                                                        % (channel, self.unescape(txt)))
+                    #print 'The server couldn\'t fulfill the request.'
+                    #print 'Error code: ', e.code
+        greeting_maker.proces("del", p.name, p.pid)
     
     
     
     def link(self, text,sqlcursor,db,sock):
         p = mp.current_process()
-        istr = "add|%s|%s" % (p.name,p.pid)
-        queue.put(istr)
+        greeting_maker=Pyro4.Proxy(self.uri)
+        greeting_maker.proces("add", p.name, p.pid)
         m = IMAGE_RE.findall(text)
         for x in m:
           try:  
@@ -850,15 +855,15 @@ class MyDaemon(Daemon):
                         txt = 'The server couldn\'t fulfill the request. Error code: %s' % e.code
                         if channel == "#trollsquad" or channel == "#test" : sock.send("PRIVMSG %s :04%s ~baka~\n\r" \
                                                                             % (channel, self.unescape(txt)))
-        istr = "del|%s|%s" % (p.name,p.pid)
-        queue.put(istr)
+        greeting_maker.proces("del", p.name, p.pid)
     
     def vk_audio(self,sock,text,defaultEncoding,sqlcursor,db,old_track,vkopener,AUDIO_RE,notice=False):
        # sock.send("NOTICE %s :stage 0: send info\n\r" % self.get_nick(text))
+        
         p = mp.current_process()
         setproctitle("elis: %s" % p.name )
-        istr = "add|%s|%s" % (p.name,p.pid)
-        queue.put(istr)
+        greeting_maker=Pyro4.Proxy(self.uri)
+        greeting_maker.proces("add", p.name, p.pid)
         host = "vk.com"
         vkopener.addheaders = [('User-Agent', "Mozilla/5.0 (X11; Linux x86_64; rv:23.0) Gecko/20100101 Firefox/23.0"),
                        ('Accept','text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'),
@@ -911,82 +916,77 @@ class MyDaemon(Daemon):
                 if channel == "#trollsquad" : 
                     sock.send("PRIVMSG %s :%s now listening: 05%s ~desu~\n\r" % (channel,nick,title_text))
             else : sock.send("PRIVMSG %s :04%s %s ~desu~\n\r" % (channel,nick, "hears the voice conspiratorially cockroaches in his head"))
-        istr = "del|%s|%s" % (p.name,p.pid)
-        queue.put(istr)
+        greeting_maker.proces("del", p.name, p.pid)
 
     def vk_message(self,sock,defaultEncoding,old_id,sqlcursor,db):
-     p = mp.current_process()
-     istr = "add|%s|%s" % (p.name,p.pid)
-     queue.put(istr)
-     setproctitle("elis: vk Message" % url )
-     start = True
-     while start :    
-        time.sleep(3)
-        headers = {'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:23.0) Gecko/20100101 Firefox/23.0'}
-        url = 'http://vk.com/im?sel=c1'
-        #url = 'https://vk.com/im?peers=4698310_253730801_92810264_7434263_4755760_4432531_18834314_c3&sel=c2'
-        res =vkopener.open(url)
-        info = res.info()
-        mimetype = info.getmaintype()
-        charset = "cp1251"
-        channel = "#trollsquad"
-        if mimetype != "image" and mimetype == "text" :
-            data = res.read()
-            #data1 = data.decode(charset).encode(defaultEncoding)
-            #self.loger(data)
-            m = VKMESSAGE_RE.findall(data)
-            src_txt = m[len(m)-1]
-            msgID = src_txt[0]
-            if old_id != msgID:
-                VKnick = src_txt[1].decode(charset).encode(defaultEncoding)
-                txt = src_txt[2].decode(charset).encode(defaultEncoding).replace("<br>"," ").replace('</a>',"")
-                txt = re.sub('<a href=".*" target="_blank">','',txt, flags=re.IGNORECASE)
-                txtarr = []
-                if len(txt) > 300 :
-                    for x in range(0,len(txt),300):
-                        txtarr.append(txt[x: x + 300])
-                imgURL = src_txt[4].decode(charset).encode(defaultEncoding)
-                if imgURL != "" : txt = "%s %s" % (txt,imgURL)
-                txt = self.unescape(txt)
-                sqlcursor.execute("""SELECT nick from vk_ident where name LIKE '%s' """ %  VKnick)
-                ident = sqlcursor.fetchone()
-                if ident != None: VKnick = ident[0].encode(defaultEncoding)
-                self.loger("MSG ID=%s<br>NICK=%s<br>TEXT=%s<br>IMAGE=%s<br>ENCODING=%s" % (msgID,VKnick,txt,imgURL,charset) )
-                if VKnick == "Gendalf" and txt == "vkstop" :
-                    start = False
-                    txt = "Stoping parser"
-                if len(txtarr) == 0 and len(txt) > 0  and VKnick != "Feiris": sock.send("PRIVMSG %s :05vk:%s: %s \n\r" % (channel ,VKnick, txt ))
-                elif len(txtarr) > 0 and VKnick != "Feiris": 
-                    for x in xrange(len(txtarr)) : 
-                        sock.send("PRIVMSG %s :05vk:%s: %s \n\r" % (channel ,VKnick, txtarr[x] ))
-                        time.sleep(0.5)
-                old_id = msgID
-        time.sleep(3)
-     istr = "del|%s|%s" % (p.name,p.pid)
-     queue.put(istr)
-        #self.vk_message(sock,defaultEncoding,msgID)
+        p = mp.current_process()
+        greeting_maker=Pyro4.Proxy(self.uri)
+        greeting_maker.proces("add", p.name, p.pid)
+        setproctitle("elis: vk Message" % url )
+        start = True
+        while start :    
+           time.sleep(3)
+           headers = {'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:23.0) Gecko/20100101 Firefox/23.0'}
+           url = 'http://vk.com/im?sel=c1'
+           #url = 'https://vk.com/im?peers=4698310_253730801_92810264_7434263_4755760_4432531_18834314_c3&sel=c2'
+           res =vkopener.open(url)
+           info = res.info()
+           mimetype = info.getmaintype()
+           charset = "cp1251"
+           channel = "#trollsquad"
+           if mimetype != "image" and mimetype == "text" :
+               data = res.read()
+               #data1 = data.decode(charset).encode(defaultEncoding)
+               #self.loger(data)
+               m = VKMESSAGE_RE.findall(data)
+               src_txt = m[len(m)-1]
+               msgID = src_txt[0]
+               if old_id != msgID:
+                   VKnick = src_txt[1].decode(charset).encode(defaultEncoding)
+                   txt = src_txt[2].decode(charset).encode(defaultEncoding).replace("<br>"," ").replace('</a>',"")
+                   txt = re.sub('<a href=".*" target="_blank">','',txt, flags=re.IGNORECASE)
+                   txtarr = []
+                   if len(txt) > 300 :
+                       for x in range(0,len(txt),300):
+                           txtarr.append(txt[x: x + 300])
+                   imgURL = src_txt[4].decode(charset).encode(defaultEncoding)
+                   if imgURL != "" : txt = "%s %s" % (txt,imgURL)
+                   txt = self.unescape(txt)
+                   sqlcursor.execute("""SELECT nick from vk_ident where name LIKE '%s' """ %  VKnick)
+                   ident = sqlcursor.fetchone()
+                   if ident != None: VKnick = ident[0].encode(defaultEncoding)
+                   self.loger("MSG ID=%s<br>NICK=%s<br>TEXT=%s<br>IMAGE=%s<br>ENCODING=%s" % (msgID,VKnick,txt,imgURL,charset) )
+                   if VKnick == "Gendalf" and txt == "vkstop" :
+                       start = False
+                       txt = "Stoping parser"
+                   if len(txtarr) == 0 and len(txt) > 0  and VKnick != "Feiris": sock.send("PRIVMSG %s :05vk:%s: %s \n\r" % (channel ,VKnick, txt ))
+                   elif len(txtarr) > 0 and VKnick != "Feiris": 
+                       for x in xrange(len(txtarr)) : 
+                           sock.send("PRIVMSG %s :05vk:%s: %s \n\r" % (channel ,VKnick, txtarr[x] ))
+                           time.sleep(0.5)
+                   old_id = msgID
+           time.sleep(3)
+        greeting_maker.proces("del", p.name, p.pid)
+           #self.vk_message(sock,defaultEncoding,msgID)
             
 
     def send_ping(self,sock):
-            global threadLife
-            p = mp.current_process()
-            setproctitle("elis: ping")
-            sys.stderr.write("%s started pid=%s \n" % (p.name,p.pid) )
-            sys.stderr.flush()
-            istr = "add|%s|%s" % (p.name,p.pid)
-            #self.proces("add", p.name, p.pid)
-            queue.put(istr)
-            #queue.put("qwerty")
-            while threadLife:
-                try:
-                    o = queue.get(timeout=0.3)
-                    if o == "Terminate" : threadLife = False
-                except Empty: pass
-                finally:
-                    time.sleep(10)
-                    sock.send("PING :LAG%s\n\r" % time.time())
-            istr = "del|%s|%s" % (p.name,p.pid)
-            queue.put(istr)
+        global threadLife
+        p = mp.current_process()
+        setproctitle("elis: ping")
+        sys.stderr.write("%s started pid=%s \n" % (p.name,p.pid) )
+        sys.stderr.flush()
+        greeting_maker=Pyro4.Proxy(self.uri)
+        greeting_maker.proces("add", p.name, p.pid)
+        while threadLife:
+            try:
+                o = queue.get(timeout=0.3)
+                if o == "Terminate" : threadLife = False
+            except Empty: pass
+            finally:
+                time.sleep(10)
+                sock.send("PING :LAG%s\n\r" % time.time())
+        greeting_maker.proces("del", p.name, p.pid)
 
     def informer(self,sock,sqlcursor,db,defaultEncoding):
         headers = {'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:23.0) Gecko/20100101 Firefox/23.0'}
@@ -994,8 +994,8 @@ class MyDaemon(Daemon):
         setproctitle("elis: informer")
         sys.stderr.write("%s started pid=%s \n" % (p.name,p.pid) )
         sys.stderr.flush()
-        istr = "add|%s|%s" % (p.name,p.pid)
-        queue.put(istr)
+        greeting_maker=Pyro4.Proxy(self.uri)
+        greeting_maker.proces("add", p.name, p.pid)
         threadLife = True
         while threadLife:
             try:
@@ -1034,6 +1034,7 @@ class MyDaemon(Daemon):
 
                     #self.loger()
                     #self.http_title(str(ident[x][0]),"#test",sock,sqlcursor,db,defaultEncoding)
+        greeting_maker.proces("del", p.name, p.pid)
                     
 
     def detect_encoding(self,line):
@@ -1122,13 +1123,12 @@ class MyDaemon(Daemon):
         setproctitle("elis: update proxy list")
         sys.stderr.write("%s started pid=%s \n" % (p.name,p.pid) )
         sys.stderr.flush()
-        istr = "add|%s|%s" % (p.name,p.pid)
         info = ["Angel","Angel|off"]
-        queue.put(istr)
         timer = 0
         addata = ""
         check = True
         greeting_maker=Pyro4.Proxy(self.uri)
+        greeting_maker.proces("add", p.name, p.pid)
         #time.sleep(15)
         while check:
             if timer <=0 :
@@ -1174,8 +1174,8 @@ class MyDaemon(Daemon):
                     time.sleep(60)  
             try :
                 pid = greeting_maker.listProcesses()[p.name]
-                sys.stderr.write("%s -> %s \n" % (pid,p.pid)  )
-                sys.stderr.flush()
+                #sys.stderr.write("%s -> %s \n" % (pid,p.pid)  )
+                #sys.stderr.flush()
                 if int(pid) == int(p.pid):
                     check = True
                 else:
@@ -1189,8 +1189,7 @@ class MyDaemon(Daemon):
             time.sleep(60)
             timer -= 60
             setproctitle("elis: update proxy list. proxy.pac last modified: %s. next update after %s seconds " % (addata,timer) )
-        istr = "del|%s|%s" % (p.name,p.pid)
-        queue.put(istr)
+        greeting_maker.proces("del", p.name, p.pid)
 ##Angel|off
 if __name__ == "__main__":
     daemon = MyDaemon('/tmp/elis.pid')
