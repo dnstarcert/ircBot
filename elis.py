@@ -17,7 +17,7 @@
 #bugzilla http://bugzilla.gendalf.info/buglist.cgi?product=irc%20bot&component=all&resolution=---&list_id=2
 #
 
-
+import transmissionrpc
 import socket
 import threading
 import sys, inspect, os, tempfile,re,traceback,dns.resolver, ssl , procname , datetime
@@ -44,6 +44,7 @@ from signal import SIGTERM
 from HTMLParser import HTMLParser
 import gzip
 from setproctitle import setproctitle
+import Pyro4
 
 #sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 os.chdir(os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe()))))
@@ -76,13 +77,17 @@ vkopener = urllib2.build_opener(urllib2.HTTPCookieProcessor(vkcookie))
 
 class QueueManager(BaseManager): pass
 queue = mp.Queue()
+checkIt = mp.Queue()
 #processes = dict()
 class MyDaemon(Daemon): 
 #class MyDaemon():    
         
     vk_user = ""
     vk_passwd = ""
-    
+    uri = ""
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    defaultEncoding = ""
+
     def proces(self,doing,name,pid):
         #global processes
         self.loger("action: %s => name : %s => pid: %s" % (doing,name,pid))
@@ -143,9 +148,13 @@ class MyDaemon(Daemon):
     def listProcesses(self):
         print self.processes
         sys.stdout.flush()
+        return self.processes
     #def start(self):
     #    self.run()
-
+    
+    def say(self,text):
+        self.sock.send("PRIVMSG %s :%s ~desu~\n\r" % (text['channel'],text['text'].encode(self.defaultEncoding) ) )
+        return "OK"
     def run(self):
         #print "daemon started"
         threadLife = True
@@ -164,6 +173,11 @@ class MyDaemon(Daemon):
         t.setName("watch_dog")
         t.start()
         time.sleep(0.3)
+        t1 = threading.Thread(target=self.processes2, args=())
+        t1.daemon = True
+        t1.setName("watch_dog_2")
+        t1.start()
+        time.sleep(0.3)
         #QueueManager.register('get_queue', callable=lambda:queue)
         #m = QueueManager(address=('127.0.0.1', 50000), authkey='abracadabra')
         #s = m.get_server()
@@ -171,6 +185,7 @@ class MyDaemon(Daemon):
 
     def connectToServer(self,NICK,HOST,PORT):
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.sock = sock
         my_nick = "NICK %s\n\r" % NICK
         sock.connect((HOST, int(PORT)))
         sock.send('PONG LAG123124124 \n\r')
@@ -191,6 +206,7 @@ class MyDaemon(Daemon):
         #self.loger("%s --- %s" % (vk_user,vk_passwd) )
         myconf = {} # тут должны быть все переменные передающиеся в функции
         self.loger("starting bot")
+        self.defaultEncoding = defaultEncoding
         t = threading.Thread(name = "Bot",target=self.recv_data, args=(sock,onStart,my_nick,defaultEncoding,channels,sqlcursor,db,))
         t.daemon = False
         t.start()
@@ -229,13 +245,20 @@ class MyDaemon(Daemon):
                 istr = queue.get()
                 if "add" in istr or "del" in istr :
                     args = istr.split("|")
-                    #sys.stderr.write(" %s \n" % istr )
-                    #sys.stderr.flush()
                     self.proces(args[0],args[1],args[2])
                 else:  
                     sys.stderr.write(" %s \n" % istr )
                     sys.stderr.flush()
             except Empty: pass
+
+    def processes2(self):
+        greeting_maker = self
+        listing_daemon = Pyro4.Daemon()
+        self.uri=listing_daemon.register(greeting_maker)
+        sys.stderr.write("Ready. Object uri =%s \n" % self.uri)
+        sys.stderr.flush()
+        setproctitle("elis: main process. uri = %s" % self.uri)
+        listing_daemon.requestLoop()
 
     def threadNumber(self,sock):
         #try:
@@ -707,7 +730,17 @@ class MyDaemon(Daemon):
                             sock.send("PRIVMSG %s :04%s %s http://pictures.gendalf.info/file/%s/ uploaded by %s ~baka~\n\r" \
                                                                             % (channel, "[:]||||||[:]",autorAndDate[0],md5hash,autorAndDate[1]))
                         res.close()
-
+                    elif info.getsubtype() == "x-bittorrent":
+                        nick = self.get_nick(text)
+                        self.loger(nick)
+                        if nick == "Gendalf":
+                            self.loger(url)
+                            tc = transmissionrpc.Client('10.1.0.1', port=9091)
+                            self.loger("connected")
+                            torrent = tc.add_torrent(url)
+                            self.loger(torrent)
+                            sock.send("PRIVMSG %s :torrent file: %s\n\r" % (nick,str(torrent).encode(defaultEncoding) ) )
+                
 
                 except URLError, e: 
                     if hasattr(e, 'reason'): 
@@ -1094,7 +1127,10 @@ class MyDaemon(Daemon):
         queue.put(istr)
         timer = 0
         addata = ""
-        while True:
+        check = True
+        greeting_maker=Pyro4.Proxy(self.uri)
+        #time.sleep(15)
+        while check:
             if timer <=0 :
                 try: 
                     ddate = ""
@@ -1107,7 +1143,7 @@ class MyDaemon(Daemon):
                         ddate2 = date.split("\n")
                         ddate = date.split("\n")[1].split(" on ")[1].strip().rstrip() 
                         f.close()
-                    except : setproctitle("elis: update proxy list. error " )
+                    except : setproctitle("elis: update proxy list. error on read file " )
                     ddata = urllib2.urlopen(request).read()
                     ddata2 = ddata.split("\n")
                     addata= ddata.split("\n")[1].split(" on ")[1].strip().rstrip()
@@ -1130,11 +1166,26 @@ class MyDaemon(Daemon):
                         q = "proxy|03proxy.pac modified: %s 02add:%s 04del:%s 10total IP's in blacklist = %s ~desu~|%s" % (addata,added,deleted,total,p.pid)
                         queue.put(q)
                     mod_time = time.ctime(os.path.getmtime(path+"/proxy.pac"))
-                    setproctitle("elis: update proxy list. proxy.pac last modified: %s" % addata )
+                    setproctitle("elis: update proxy list. proxy.pac last modified: %s | check = %s" % (addata,check) )
+                    
                     timer = 18000
                 except: 
-                    setproctitle("elis: update proxy list. error " )
+                    setproctitle("elis: update proxy list. error in source code " )
                     time.sleep(60)  
+            try :
+                pid = greeting_maker.listProcesses()[p.name]
+                sys.stderr.write("%s -> %s \n" % (pid,p.pid)  )
+                sys.stderr.flush()
+                if int(pid) == int(p.pid):
+                    check = True
+                else:
+                    check = False
+                    sys.stderr.write("%s -> %s \n" % (pid,p.pid)  )
+                    sys.stderr.flush()
+            except :
+                setproctitle("elis: update proxy list. error on sending request. uri = %s" % self.uri )
+                time.sleep(60)
+                check = False
             time.sleep(60)
             timer -= 60
             setproctitle("elis: update proxy list. proxy.pac last modified: %s. next update after %s seconds " % (addata,timer) )
