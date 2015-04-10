@@ -64,8 +64,9 @@ AUDIO_RE = re.compile('<a class="current_audio fl_l" .*><div class="label fl_l">
 VKMESSAGE_RE = re.compile('<tr id="mess([0-9]+?)"[\d\s\S\D]+?<a href=".*" class="mem_link" target="_blank">(.+?)<.*<div class="im_msg_text">(.*?)?<\/div>(.*<img src="(.+?)")?',re.UNICODE)
 PID_RE= re.compile(r"freeman\s+([\d]+)?\s+")
 IP_RE = re.compile(r"\"([0-9\.]+)\"")
-HOST_RE = re.compile(r"https?:\/\/([^\s^,]+)\/")
-RUS_HOST_RE = re.compile(r"(https?:\/\/)([^\s^,]+)\/")
+HOST_RE = re.compile(r"https?:\/\/([^\s^,^\/]+)\/")
+RUS_HOST_RE = re.compile(r"(https?:\/\/)([^\s^,^\/]+)\/")
+FULLHOST_RE = re.compile(r"(?P<type>https?:\/\/)(?P<addr>[^\s^,^\/]+)(?P<content>\/.*)")
 basePath = "%s/%s" % (path,'logs.db')
 dbl = sqlite3.connect(basePath)
 base = dbl.cursor()
@@ -88,6 +89,8 @@ class MyDaemon(Daemon):
     uri = ""
     token = ""
     redisdb = ""
+    ruboardName = ""
+    ruboardPasswd = ""
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     defaultEncoding = ""
     headers = [('User-Agent', "Mozilla/5.0 (X11; Linux x86_64; rv:36.0) Gecko/20100101 Firefox/36.0"),
@@ -97,7 +100,7 @@ class MyDaemon(Daemon):
 
     def proces(self,doing,name,pid):
         #global processes
-        self.loger("action: %s => name : %s => pid: %s" % (doing,name,pid))
+        #self.loger("action: %s => name : %s => pid: %s" % (doing,name,pid))
         if doing == "add":
             self.processes[name] = pid
         elif doing == "kill":
@@ -106,8 +109,8 @@ class MyDaemon(Daemon):
             del self.processes[name]
         elif doing == "proxy":
             self.proxyList = name
-        sys.stderr.write(" %s \n" % self.processes )
-        sys.stderr.flush()
+        #sys.stderr.write(" %s \n" % self.processes )
+        #sys.stderr.flush()
     
     def terminate(self):
         #global processes  str=`ps auxw | grep elis.py | awk ' {print $2 } '`
@@ -174,7 +177,7 @@ class MyDaemon(Daemon):
                     config.get("bot", "port"))
         p = mp.current_process()
         self.proces("add", p.name, p.pid)
-        self.loger(p)
+        #self.loger(p)
         t = threading.Thread(target=self.processes1, args=())
         t.daemon = True
         t.setName("watch_dog")
@@ -209,13 +212,15 @@ class MyDaemon(Daemon):
         self.vk_user=config.get("vk", "email")
         self.vk_passwd=config.get("vk", "passwd")
         self.token = config.get("vk","token")
+        self.ruboardName = config.get("ruboard", "name")
+        self.ruboardPasswd = config.get("ruboard", "passwd")
         channels = config.get("bot", "channels").split(",")
         onStart = True
         db = MySQLdb.connect(host="localhost", user=db_user, passwd=db_passwd, db="pictures", charset='utf8')
         sqlcursor = db.cursor()
         #self.loger("%s --- %s" % (vk_user,vk_passwd) )
         myconf = {} # тут должны быть все переменные передающиеся в функции
-        self.loger("starting bot")
+        #self.loger("starting bot")
         self.defaultEncoding = defaultEncoding
         t = threading.Thread(name = "Bot",target=self.recv_data, args=(sock,onStart,my_nick,defaultEncoding,channels,sqlcursor,db,))
         t.daemon = False
@@ -237,8 +242,15 @@ class MyDaemon(Daemon):
         formdata = { "email" : self.vk_user, "pass": self.vk_passwd, "act" : "login", "role" : "al_frame" , "expire" : "", '_origin' : 'http://vk.com', 'captcha_key' : '',
             'captcha_sid' : '', 'ip_h' : '76b952d33e89ad7f4f','role' :'al_frame'}
         data_encoded = urllib.urlencode(formdata)
-        self.loger(formdata)            
+        #self.loger(formdata)            
         url = "https://login.vk.com/?act=login"
+        response = vkopener.open(url,data_encoded)
+        #
+        vkcookie.save("%s/vk.txt" % path)
+        #formdata = { "action" : "dologin ", "inmembername" : self.ruboardName, "inpassword": self.ruboardPasswd,"ref" : "http://forum.ru-board.com/board.cgi"}
+        #data_encoded = urllib.urlencode(formdata)
+        data_encoded = self.ruboardName
+        url = "http://forum.ru-board.com/misc.cgi"
         response = vkopener.open(url,data_encoded)
         #self.loger(response.read())
         vkcookie.save("%s/vk.txt" % path)
@@ -268,6 +280,14 @@ class MyDaemon(Daemon):
         sys.stderr.flush()
         setproctitle("elis: main process. uri = %s" % self.uri)
         listing_daemon.requestLoop()
+
+    def redisCheck(self, sock, url, channel):
+        if self.redisdb.exists(url) :
+            title_text= self.redisdb.get(url)
+            if channel == "#trollsquad" or channel == "#test" : sock.send("PRIVMSG %s :04%s ~baka~\n\r" \
+                                                                % (channel, title_text))
+            return True
+        else : return False
 
     def threadNumber(self,sock):
         #try:
@@ -356,14 +376,14 @@ class MyDaemon(Daemon):
                 #self.loger(sock.recv(4096))
                 sock.send("PRIVMSG chanserv :op #trollsquad Feiris\n\r")
                 #self.loger(sock.recv(4096)) 
-                self.loger("starting informer")
+                #self.loger("starting informer")
                 torrent = mp.Process(name= "torrent informer",target=self.informer,args=(sock,sqlcursor,db,defaultEncoding,))
                 torrent.daemon = True
                 #t.setName("informer")
                 torrent.start()
                 self.dataProc.append(torrent)
                 time.sleep(1)
-                self.loger("starting ping")
+                #self.loger("starting ping")
                 pingProcess = mp.Process(name= "ping process",target=self.send_ping, args=(sock,))
                 pingProcess.daemon = True
                 self.dataProc.append(pingProcess)
@@ -374,14 +394,14 @@ class MyDaemon(Daemon):
                 proxyProcess.start()
                 time.sleep(1)
                 if(self.vk_user !='' and self.vk_passwd !=''):
-                    self.loger("trying login to vk")
+                    #self.loger("trying login to vk")
                     vk_thread = mp.Process(name= "VK authentification",target=self.vkauth)
                     vk_thread.daemon = True
                     #vk_thread.setName("VK authentification")
                     vk_thread.start()
                     self.dataProc.append(vk_thread)
                 time.sleep(1)
-                self.loger("trying to start thread")
+                #self.loger("trying to start thread")
                 t = threading.Thread(target=self.threadNumber, args=(sock,))
                 t.daemon = True
                 t.setName("threadNumber")
@@ -587,26 +607,32 @@ class MyDaemon(Daemon):
             try:
                 url = x
                 useproxy = ""
-                if self.redisdb.exists(url) :
-                    title_text= self.redisdb.get(url)
-                    if channel == "#trollsquad" or channel == "#test" : sock.send("PRIVMSG %s :05%s (%s) ~desu~\n\r" \
-                                                                        % (channel, title_text, "cached in redis"))
-                    break
+                if self.redisCheck(sock,url,channel) : break
                 pre_url = RUS_HOST_RE.findall(x)[0]
                 url2 = "%s" % pre_url[1].decode("utf-8") #http://xn--b1aelm.xn--p1ai/
                 #url2 = url2.encode('idna')
                 url2 = "%s%s/" % (pre_url[0],url2.encode('idna'))
                 url = re.sub(HOST_RE,url2,url)
                 #sys.stderr.write("%s \n" % url2) 
-                #sys.stderr.flush()
+                #
                 setproctitle("elis: parse from %s" % url )
                 dt = datetime.datetime.now() 
+                hhost = FULLHOST_RE.search(url)
+                #sys.stderr.write("%s \n" % hhost);sys.stderr.flush()
+                if hhost.group("addr") == "nnm-club.me": 
+                    host_type = hhost.group("type")
+                    content_string = hhost.group("content")
+                    #sys.stderr.write("content : %s \n" % content_string);sys.stderr.flush()
+                    url="%s%s%s" % (host_type,'ipv6.nnm-club.me',content_string)
                 if HOST_RE.findall(url) > 0 : 
                     host = HOST_RE.findall(url)[0]
                     hhost = host.split(".")
                     domain = hhost[len(hhost)-1]
                 else : host = url
-                answers = dns.resolver.query(host, 'A')
+                if not "ipv6" in url : answers = dns.resolver.query(host, 'A')
+                else : answers = ['0']
+                sys.stderr.write("url:%s => A = %s \n" % (host,answers[0]))
+                #sys.stderr.flush()
                 if VK_RE.search(url) :
                     vkcookie.load("%s/vk.txt" % path)
                     vkopener = urllib2.build_opener(urllib2.HTTPCookieProcessor(vkcookie))
@@ -619,15 +645,17 @@ class MyDaemon(Daemon):
                     res =vkopener.open(url)
                 #elif str(answers[0]) in proxy : pass
                 elif self.redisdb.hget('proxy',str(answers[0])) == "1":
-                    #sys.stderr.write(str(answers[0]))
-                    #sys.stderr.flush()
                     proxy_handler = urllib2.ProxyHandler({'http': 'http://proxy.antizapret.prostovpn.org:3128',
-                                                          'https': 'http://proxy.antizapret.prostovpn.org:3128'}) 
+                                                          'https': 'https://proxy.antizapret.prostovpn.org:3128'}) 
                     #https_sslv3_handler = urllib.request.HTTPSHandler(context=ssl.SSLContext(ssl.PROTOCOL_SSLv3))
+                    sys.stderr.write("url = %s \n" % url)
+                    sys.stderr.flush()
                     opener = urllib2.build_opener(proxy_handler)
+                    urllib2.install_opener(opener)
                     opener.addheaders = self.headers
                     res = opener.open(url)
                     useproxy = "{proxy: antizapret}"
+                    #break
                 elif domain == "i2p" :
                     proxy_handler = urllib2.ProxyHandler({'http': '10.1.0.1:4444',
                                                           'https': '10.1.0.1:4444'})
@@ -635,9 +663,11 @@ class MyDaemon(Daemon):
                     opener.addheaders = self.headers
                     res = opener.open(url)
                 else :
+                    sys.stderr.write("Create opener for url: %s\n" % url);sys.stderr.flush()
                     httpopener = urllib2.build_opener(urllib2.HTTPCookieProcessor(vkcookie))
                     httpopener.addheaders = self.headers
                     res = httpopener.open(url)
+                    #sys.stderr.write("Parse result \n");sys.stderr.flush()
                     #request = urllib2.Request(url, None, headers)
                     #res = urllib2.urlopen(request)
                 #print res.headers
@@ -685,7 +715,7 @@ class MyDaemon(Daemon):
                     if len(title_text) > 300 : title_text = title_text[:300]
                     if text[indx+2:][0:5] != "$add " :
                         self.redisdb.set(url,title_text)
-                        self.redisdb.expire(url,3600)
+                        self.redisdb.expire(url,3600*24)
                         if channel == "#trollsquad" or channel == "#test" : sock.send("PRIVMSG %s :05%s (%s) %s~desu~\n\r" \
                                                                         % (channel, title_text,delta, useproxy))
                     
@@ -758,6 +788,7 @@ class MyDaemon(Daemon):
                         new_file2.write(new_file)
                         new_file2.close()
                         nick = self.get_nick(text)
+                        self.redisdb.set(url,"[:]||||||[:] %s http://pictures.gendalf.info/file/%s/ uploaded by %s" % (datetime,md5hash,autor))
                         sqlcursor.execute("INSERT INTO binary_data VALUES(NULL, %s,%s,%s)", (md5hash,f.getvalue(), fullname,))
                         sql = """INSERT INTO pics(id,name,path,autor,datetime,rating,md5,sha512,histogram) VALUES (NULL,'%s','%s','%s',NULL,'0','%s','%s','%s')""" % (fullname,imagePath,nick,md5hash,sha512hash,histogram) 
                         sqlcursor.execute(sql)
@@ -765,6 +796,7 @@ class MyDaemon(Daemon):
                     elif channel == "#trollsquad" or channel == "#test" : 
                         sqlcursor.execute("""SELECT `datetime`,`autor` FROM `pics` WHERE `id` LIKE '%s' """ % ident)
                         autorAndDate = sqlcursor.fetchone()
+                        self.redisdb.set(url,"[:]||||||[:] %s http://pictures.gendalf.info/file/%s/ uploaded by %s" % (autorAndDate[0],md5hash,autorAndDate[1]))
                         #self.loger(autorAndDate)
                         sock.send("PRIVMSG %s :04%s %s http://pictures.gendalf.info/file/%s/ uploaded by %s ~baka~\n\r" \
                                                                         % (channel, "[:]||||||[:]",autorAndDate[0],md5hash,autorAndDate[1]))
@@ -808,6 +840,7 @@ class MyDaemon(Daemon):
             channel = self.get_channel(text)
             url = x[0]
             setproctitle("elis: image parser from %s" % url )
+            if self.redisCheck(sock,url,channel) : break
             #print "url: %s" % url
             headers = {'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:36.0) Gecko/20100101 Firefox/36.0'}
             if VK_RE.search(url) :
@@ -862,14 +895,16 @@ class MyDaemon(Daemon):
                     new_file2.write(new_file)
                     new_file2.close()
                     nick = self.get_nick(text)
+                    self.redisdb.set(url,"[:]||||||[:] %s http://pictures.gendalf.info/file/%s/ uploaded by %s" % (datetime,md5hash,autor))
                     sqlcursor.execute("INSERT INTO binary_data VALUES(NULL, %s,%s,%s)", (md5hash,f.getvalue(), fullname,))
                     sql = """INSERT INTO pics(id,name,path,autor,datetime,rating,md5,sha512,histogram) VALUES (NULL,'%s','%s','%s',NULL,'0','%s','%s','%s')""" % (fullname,imagePath,nick,md5hash,sha512hash,histogram)
-                    self.loger(sql)
+                    #self.loger(sql)
                     sqlcursor.execute(sql)
                     db.commit()
                 elif channel == "#trollsquad" or channel == "#test" :
                    sqlcursor.execute("""SELECT `datetime`,`autor` FROM `pics` WHERE `id` LIKE '%s' """ % ident)
                    autorAndDate = sqlcursor.fetchone()
+                   self.redisdb.set(url,"[:]||||||[:] %s http://pictures.gendalf.info/file/%s/ uploaded by %s" % (autorAndDate[0],md5hash,autorAndDate[1]))
                    #self.loger(autorAndDate)
                    sock.send("PRIVMSG %s :04%s %s http://pictures.gendalf.info/file/%s/ uploaded by %s ~baka~\n\r" \
                                                                             % (channel, "[:]||||||[:]",autorAndDate[0],md5hash,autorAndDate[1]))
@@ -904,7 +939,7 @@ class MyDaemon(Daemon):
         nick = self.get_nick(text)
         sqlcursor.execute("""SELECT user_id from vk_ident where nick LIKE '%s' """ %  nick)
         ident = int(sqlcursor.fetchone()[0])
-        self.loger(ident)
+        #self.loger(ident)
         if ident == None or ident == 0: return None
         url = 'https://vk.com/%s' % ident
         base_request = datetime.datetime.now()
