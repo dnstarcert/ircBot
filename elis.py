@@ -20,7 +20,7 @@
 import transmissionrpc
 import socket
 import threading
-import sys, inspect, os, tempfile,re,traceback,dns.resolver, ssl , procname , datetime, json
+import sys, inspect, os, tempfile,re,traceback,dns.resolver, ssl , procname , datetime, json, cgi
 import os.path
 import base64,urllib2,urllib
 from urllib2 import Request, urlopen, URLError
@@ -72,6 +72,8 @@ dbl = sqlite3.connect(basePath)
 base = dbl.cursor()
 base.execute('CREATE TABLE IF NOT EXISTS logs (id int(3) PRIMARY KEY NOT NULL UNIQUE,nick text,datetime timestamp,txt text)')
 dbl.commit()
+MUSIC_RE = re.compile('(np|listen|now playing)(:|»)(?P<content>.*)',re.I)
+
 
 vkcookie = MozillaCookieJar()
 vkcookie.load("%s/vk.txt" % path)
@@ -91,6 +93,8 @@ class MyDaemon(Daemon):
     redisdb = ""
     ruboardName = ""
     ruboardPasswd = ""
+    db = ""
+    sqlcursor = ""
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     defaultEncoding = ""
     headers = [('User-Agent', "Mozilla/5.0 (X11; Linux x86_64; rv:36.0) Gecko/20100101 Firefox/36.0"),
@@ -172,9 +176,16 @@ class MyDaemon(Daemon):
         config = ConfigParser.RawConfigParser()
         config.read('%s/bot.cfg' % path)
         channels = config.get("bot", "channels").split(",")
-        self.connectToServer(config.get("bot", "nick"),
-                    config.get("bot", "server"),
-                    config.get("bot", "port"))
+        self.defaultEncoding = config.get("bot", "encoding")
+        db_user=config.get("db", "user")
+        db_passwd=config.get("db", "passwd")
+        self.vk_user=config.get("vk", "email")
+        self.vk_passwd=config.get("vk", "passwd")
+        self.token = config.get("vk","token")
+        self.ruboardName = config.get("ruboard", "name")
+        self.ruboardPasswd = config.get("ruboard", "passwd")
+        self.db = MySQLdb.connect(host="localhost", user=db_user, passwd=db_passwd, db="pictures", charset='utf8')
+        self.sqlcursor = self.db.cursor()
         p = mp.current_process()
         self.proces("add", p.name, p.pid)
         #self.loger(p)
@@ -190,6 +201,9 @@ class MyDaemon(Daemon):
         time.sleep(0.3)
         pool = redis.ConnectionPool(host='localhost', port=6379, db=0)
         self.redisdb = redis.Redis(connection_pool=pool)
+        self.connectToServer(config.get("bot", "nick"),
+                    config.get("bot", "server"),
+                    config.get("bot", "port"))
         #QueueManager.register('get_queue', callable=lambda:queue)
         #m = QueueManager(address=('127.0.0.1', 50000), authkey='abracadabra')
         #s = m.get_server()
@@ -206,23 +220,13 @@ class MyDaemon(Daemon):
         #recv_data(sock)
         config = ConfigParser.RawConfigParser()
         config.read('%s/bot.cfg' % path)
-        defaultEncoding = config.get("bot", "encoding")
-        db_user=config.get("db", "user")
-        db_passwd=config.get("db", "passwd")
-        self.vk_user=config.get("vk", "email")
-        self.vk_passwd=config.get("vk", "passwd")
-        self.token = config.get("vk","token")
-        self.ruboardName = config.get("ruboard", "name")
-        self.ruboardPasswd = config.get("ruboard", "passwd")
         channels = config.get("bot", "channels").split(",")
         onStart = True
-        db = MySQLdb.connect(host="localhost", user=db_user, passwd=db_passwd, db="pictures", charset='utf8')
-        sqlcursor = db.cursor()
         #self.loger("%s --- %s" % (vk_user,vk_passwd) )
         myconf = {} # тут должны быть все переменные передающиеся в функции
         #self.loger("starting bot")
-        self.defaultEncoding = defaultEncoding
-        t = threading.Thread(name = "Bot",target=self.recv_data, args=(sock,onStart,my_nick,defaultEncoding,channels,sqlcursor,db,))
+        #self.defaultEncoding = defaultEncoding
+        t = threading.Thread(name = "Bot",target=self.recv_data, args=(sock,onStart,my_nick,self.defaultEncoding,channels,self.sqlcursor,self.db,))
         t.daemon = False
         t.start()
 
@@ -284,7 +288,7 @@ class MyDaemon(Daemon):
     def redisCheck(self, sock, url, channel):
         if self.redisdb.exists(url) :
             title_text= self.redisdb.get(url)
-            if channel == "#trollsquad" or channel == "#test" : sock.send("PRIVMSG %s :04%s ~baka~\n\r" \
+            if channel == "#trollsquad" or channel == "#test" : sock.send("PRIVMSG %s :05%s \n\r" \
                                                                 % (channel, title_text))
             return True
         else : return False
@@ -532,6 +536,19 @@ class MyDaemon(Daemon):
             vk.setName("VK Message reader")
             vk.start()
         if text[indx+2:][0:5] == "$kill" and nick == "Gendalf" : self.exterminate()
+        st = MUSIC_RE.search(text)
+        if st :
+            st = st.group('content')
+            name = re.sub(r'[\[|\{]((\w|\s)*\W\S+(\w|\s)*)+[\}|\]].*','',st)
+            #self.loger(name)
+            channel = self.get_channel(text)
+            #name = text[indx+2:][4:-2]
+            t = mp.Process(name= "VK Audio search",target=self.audiosearch,args=(sock,channel,name,defaultEncoding,'memory'))
+            t.daemon = True
+            #t.setName("http")
+            t.start()
+            self.dataProc.append(t)
+            
 
 
     def notice(self,text,sock,sqlcursor,db,defaultEncoding):
@@ -561,6 +578,8 @@ class MyDaemon(Daemon):
                 #t.setName("informer")
                 t.start()
                 self.dataProc.append(t)
+            elif "$ms" in txt:
+                self.sock.send("%s %s :%s (%s) \n\r" % ('NOTICE',nick,str(self.redisdb.get('track')).encode(defaultEncoding) , self.redisdb.get('trackName')) )
         except: pass
 
 
@@ -607,7 +626,10 @@ class MyDaemon(Daemon):
             try:
                 url = x
                 useproxy = ""
-                if self.redisCheck(sock,url,channel) : break
+                cachedurl = url
+                if url[len(url)-1:] == "/" : cachedurl = url[:-1]
+                if not "$new" in text:
+                    if self.redisCheck(sock,cachedurl,channel): break
                 pre_url = RUS_HOST_RE.findall(x)[0]
                 url2 = "%s" % pre_url[1].decode("utf-8") #http://xn--b1aelm.xn--p1ai/
                 #url2 = url2.encode('idna')
@@ -663,7 +685,7 @@ class MyDaemon(Daemon):
                     opener.addheaders = self.headers
                     res = opener.open(url)
                 else :
-                    sys.stderr.write("Create opener for url: %s\n" % url);sys.stderr.flush()
+                    #sys.stderr.write("Create opener for url: %s\n" % url);sys.stderr.flush()
                     httpopener = urllib2.build_opener(urllib2.HTTPCookieProcessor(vkcookie))
                     httpopener.addheaders = self.headers
                     res = httpopener.open(url)
@@ -704,7 +726,7 @@ class MyDaemon(Daemon):
                     color = re.compile(r'([0-9]{1,2})')
                     title_text = color.sub("",title_text)
                     title_text_src = title_text.encode(defaultEncoding)
-                    title_text = self.unescape(title_text.encode(defaultEncoding)) 
+                    title_text = self.unescape(title_text.encode(defaultEncoding)).strip().rstrip()
                     dt2 = datetime.datetime.now() 
                     delta1 = str(dt2 - dt).split(":")[2].split(".")
                     minutes = int(str(dt2 - dt).split(":")[1])
@@ -714,7 +736,7 @@ class MyDaemon(Daemon):
                         delta = "%s min %s" % (minutes,delta)
                     if len(title_text) > 300 : title_text = title_text[:300]
                     if text[indx+2:][0:5] != "$add " :
-                        self.redisdb.set(url,title_text)
+                        self.redisdb.set(cachedurl,'05[:]||||||[:] %s %s 04¦ 05%s' %(datetime.datetime.now().strftime("%d-%m-%Y %H:%M"),nick,title_text) )
                         self.redisdb.expire(url,3600*24)
                         if channel == "#trollsquad" or channel == "#test" : sock.send("PRIVMSG %s :05%s (%s) %s~desu~\n\r" \
                                                                         % (channel, title_text,delta, useproxy))
@@ -788,7 +810,7 @@ class MyDaemon(Daemon):
                         new_file2.write(new_file)
                         new_file2.close()
                         nick = self.get_nick(text)
-                        self.redisdb.set(url,"[:]||||||[:] %s http://pictures.gendalf.info/file/%s/ uploaded by %s" % (datetime,md5hash,autor))
+                        self.redisdb.set(url,"04[:]||||||[:] %s http://pictures.gendalf.info/file/%s/ uploaded by %s" % (datetime.datetime.now().strftime("%d-%m-%Y %H:%M"),md5hash,nick))
                         sqlcursor.execute("INSERT INTO binary_data VALUES(NULL, %s,%s,%s)", (md5hash,f.getvalue(), fullname,))
                         sql = """INSERT INTO pics(id,name,path,autor,datetime,rating,md5,sha512,histogram) VALUES (NULL,'%s','%s','%s',NULL,'0','%s','%s','%s')""" % (fullname,imagePath,nick,md5hash,sha512hash,histogram) 
                         sqlcursor.execute(sql)
@@ -895,7 +917,7 @@ class MyDaemon(Daemon):
                     new_file2.write(new_file)
                     new_file2.close()
                     nick = self.get_nick(text)
-                    self.redisdb.set(url,"[:]||||||[:] %s http://pictures.gendalf.info/file/%s/ uploaded by %s" % (datetime,md5hash,autor))
+                    self.redisdb.set(url,"[:]||||||[:] %s http://pictures.gendalf.info/file/%s/ uploaded by %s" % (datetime,md5hash,nick))
                     sqlcursor.execute("INSERT INTO binary_data VALUES(NULL, %s,%s,%s)", (md5hash,f.getvalue(), fullname,))
                     sql = """INSERT INTO pics(id,name,path,autor,datetime,rating,md5,sha512,histogram) VALUES (NULL,'%s','%s','%s',NULL,'0','%s','%s','%s')""" % (fullname,imagePath,nick,md5hash,sha512hash,histogram)
                     #self.loger(sql)
@@ -939,17 +961,16 @@ class MyDaemon(Daemon):
         nick = self.get_nick(text)
         sqlcursor.execute("""SELECT user_id from vk_ident where nick LIKE '%s' """ %  nick)
         ident = int(sqlcursor.fetchone()[0])
-        #self.loger(ident)
         if ident == None or ident == 0: return None
         url = 'https://vk.com/%s' % ident
         base_request = datetime.datetime.now()
         base_request_delta = str(base_request - burning).split(":")[2]
         url="https://api.vk.com/method/status.get?user_id=%i&v=5.29&access_token=%s" % (ident,self.token)
         res =vkopener.open(url)
-        #sock.send("NOTICE %s :stage 1: open vk\n\r" % self.get_nick(text))
         info = res.info()
         mimetype = info.getsubtype()
         if notice :
+            oldChannel = nick
             channel = "#trollsquad" 
         else:
             channel = self.get_channel(text)
@@ -957,44 +978,52 @@ class MyDaemon(Daemon):
             data =  json.loads(res.read())
             server_request = datetime.datetime.now()
             server_request_delta = str(server_request - base_request).split(":")[2]
-            #sock.send("NOTICE %s :stage 2: read vk\n\r" % self.get_nick(text))
             response = data['response']
             if response.has_key('audio'):
                 audio = response['audio']
                 title_text = "%s - %s" % (audio['artist'].encode("utf-8"), audio['title'].encode("utf-8"))
             else : sock.send("PRIVMSG %s :04%s %s ~desu~\n\r" % (channel,nick, "hears the voice conspiratorially cockroaches in his head"))
-            #sech = AUDIO_RE.findall(data)
-            #CHR_RE = re.compile(r"(&#[0-9]+;)")
-            #sock.send("NOTICE %s :stage 3: find text. array len: %s\n\r" % (self.get_nick(text),len(sech)))
             if len(title_text) != 0 and old_track == "":
-                #try:
-                #    charset = self.detect_encoding(sech[0])
-                #except:
-                #    charset = "utf-8"
-                #title_text = sech[0].decode(charset).replace("\n","").replace("\r","")
-                #color = re.compile(r'([0-9]{1,2})')
-                #title_text = color.sub("",title_text)
-                #title_text_src = title_text
-                #title_text = self.unescape(title_text.encode(defaultEncoding))
-                #chr_search = CHR_RE.findall(title_text)
-                #unescape = HTMLParser().unescape
-                #if len(chr_search) != 0:
-                #     sys.stderr.write("char array %s \n" % chr_search )
-                #     sys.stderr.flush()
-                #     for char in chr_search:
-                #         ctring = unescape(char).encode("utf-8")
-                #         title_text = title_text.replace(char,ctring)
-                #         sys.stderr.write("replace char %s -> %s \n" % (char,ctring)  )
-                #         sys.stderr.flush()
-                #         #title_text = title_text.replace("&#%s;" % char,chr(int(char)))
-                ##self.loger(title_text)
                 recode_time = datetime.datetime.now()
                 recode_time_delta = str(recode_time - server_request).split(":")[2] # (base=%s , server=%s , recode=%s , delta=%s) % (base_request_delta,server_request_delta,recode_time_delta,delta)
                 delta = str(recode_time - burning).split(":")[2]
                 if channel == "#trollsquad" : 
                     sock.send("PRIVMSG %s :%s now listening: 05%s ~desu~\n\r" % (channel,nick,title_text ))
             elif old_track == "get_track":
-                sock.send("NOTICE %s :%s \n\r" % (nick,audio['url']) )
+                self.audiosearch(sock,oldChannel,title_text,defaultEncoding,notice)
+                #sock.send("NOTICE %s :%s \n\r" % (nick,audio['url']) )
+        greeting_maker.proces("del", p.name, p.pid)
+
+    def audiosearch(self,sock,channel,name,defaultEncoding,notice=False):
+        p = mp.current_process()
+        name = urllib.quote_plus(name.strip().rstrip())
+        greeting_maker=Pyro4.Proxy(self.uri)
+        greeting_maker.proces("add", p.name, p.pid)
+        url = 'https://api.vk.com/method/audio.search?access_token=%s&q=%s&count=1' % (self.token,name)
+        headers = {'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:36.0) Gecko/20100101 Firefox/36.0' ,\
+        'Accept':'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',\
+        'Accept-Language':'en-US,en;q=0.5',\
+        'Connection':'keep-alive'}
+        #self.loger(url)
+        request = urllib2.Request(url, None, headers)
+        res = urllib2.urlopen(request)
+        info = res.info()
+        mimetype = info.getsubtype()
+        if notice:
+            msgtype = "NOTICE"
+        else:
+            msgtype = "PRIVMSG"
+        if mimetype == "json" and channel == "#trollsquad" or notice:
+            data =  json.loads(res.read())
+            try:            
+                response = data['response'][1]
+                if notice == 'memory' : 
+                    self.redisdb.set('track',response['url'])
+                    trackname = "%s - %s" % (response['artist'].encode(defaultEncoding) , response['title'].encode(defaultEncoding))
+                    self.redisdb.set('trackName',trackname)
+                else : self.sock.send("%s %s :%s \n\r" % (msgtype,channel,response['url'].encode(defaultEncoding) ) )
+            except : pass
+                #self.sock.send("%s %s :%s ~baka~\n\r" % (msgtype,channel,"404 Not Found :(" ) )
         greeting_maker.proces("del", p.name, p.pid)
 
     def vk_message(self,sock,defaultEncoding,old_id,sqlcursor,db):
@@ -1047,7 +1076,6 @@ class MyDaemon(Daemon):
            time.sleep(3)
         greeting_maker.proces("del", p.name, p.pid)
            #self.vk_message(sock,defaultEncoding,msgID)
-            
 
     def send_ping(self,sock):
         global threadLife
