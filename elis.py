@@ -46,6 +46,9 @@ import gzip
 from setproctitle import setproctitle
 import Pyro4, redis
 from pyping import ping 
+import asyncore
+import asynchat
+import socket
 
 
 #sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -83,6 +86,56 @@ vkcookie = MozillaCookieJar()
 vkcookie.load("%s/vk.txt" % path)
 vkopener = urllib2.build_opener(urllib2.HTTPCookieProcessor(vkcookie))
 
+class Lobby(object):
+    def __init__(self):
+        self.clients = set()
+ 
+    def leave(self, client):
+        self.clients.remove(client)
+ 
+    def join(self, client):
+        self.clients.add(client)
+ 
+    def send_to_all(self, data):
+        for client in self.clients:
+            client.push(data)
+ 
+class Client(asynchat.async_chat):
+    def __init__(self, conn, lobby):
+        asynchat.async_chat.__init__(self, sock=conn)
+        self.in_buffer = ""
+        self.set_terminator("\n\r")
+ 
+        self.lobby = lobby
+        self.lobby.join(self)
+ 
+    def collect_incoming_data(self, data):
+        self.in_buffer += data
+ 
+    def found_terminator(self):
+        if self.in_buffer.rstrip() == "QUIT":
+            self.lobby.leave(self)
+            self.close_when_done()
+        else:
+            self.lobby.send_to_all(self.in_buffer + self.terminator)
+            self.in_buffer = ""
+ 
+class Server(asynchat.async_chat):
+    def __init__(self):
+        asynchat.async_chat.__init__(self)
+        self.create_socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.set_reuse_addr()
+        self.bind(("0.0.0.0", 3310))
+        self.listen(255)
+        self.lobby = None
+ 
+    def set_lobby(self, lobby):
+        self.lobby = lobby
+ 
+    def handle_accept(self):
+        sock, addr = self.accept()
+        client = Client(sock, self.lobby)
+
 class QueueManager(BaseManager): pass
 queue = mp.Queue()
 
@@ -100,6 +153,7 @@ class MyDaemon(Daemon):
     db = ""
     sqlcursor = ""
     proxyList = ""
+    lobby = ""
     initialtime = datetime.datetime.now()
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     defaultEncoding = ""
@@ -132,7 +186,7 @@ class MyDaemon(Daemon):
         out,err = p.communicate()
         out = out.split('\n')
         for istr in out:
-            if "elis" in istr:
+            if "elis:" in istr:
                 pid = int(PID_RE.match(istr).group(1))
                 sys.stdout.write("%s " % pid)
                 sys.stdout.flush()
@@ -210,10 +264,26 @@ class MyDaemon(Daemon):
         self.connectToServer(config.get("bot", "nick"),
                     config.get("bot", "server"),
                     config.get("bot", "port"))
+        self.lobby = Lobby()
+        server = Server()
+        server.set_lobby(self.lobby)
+        #telnet = mp.Process(name= "telnet server process",target=self.async_server, args=())
+        #telnet.daemon = True
+        #self.dataProc.append(telnet)
+        #telnet.start()
+        t1 = threading.Thread(target=asyncore.loop, args=())
+        t1.daemon = True
+        t1.setName("asyncore")
+        t1.start()
         #QueueManager.register('get_queue', callable=lambda:queue)
         #m = QueueManager(address=('127.0.0.1', 50000), authkey='abracadabra')
         #s = m.get_server()
         #s.serve_forever()
+    def async_server(self):
+        setproctitle("elis: telnet server")
+        server = Server()
+        server.set_lobby(self.lobby)
+        asyncore.loop()
 
     def connectToServer(self,NICK,HOST,PORT):
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -375,6 +445,7 @@ class MyDaemon(Daemon):
         #self.loger("trying to start bot : %s" % text[:-2])
         #sys.stderr.write("RAW TEXT: %s \n" % text )
         #sys.stderr.flush()
+        if text.find("PONG") == -1 : self.lobby.send_to_all(text)
         if text.find("PING :") == 0:
             self.loger("sending PONG")
             sock.send(u"%s\n\r" % (text.replace("PING", "PONG")))
@@ -1440,7 +1511,10 @@ class MyDaemon(Daemon):
         ff.write(ddata)
         ff.close()
         try:
-            ff = open("/patch/to/your/web/site/.proxy.pac","w+")
+            ff = open("/usr/local/www/apache22/data/proxy/proxy.pac","w+")
+            ff.write(ddata)
+            ff.close()
+            ff = open("/home/freeman/pybot/images/cloud/owncloud/proxy.pac","w+")
             ff.write(ddata)
             ff.close()
         except: pass
