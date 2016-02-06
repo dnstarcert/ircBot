@@ -45,6 +45,8 @@ from HTMLParser import HTMLParser
 import gzip
 from setproctitle import setproctitle
 import Pyro4, redis
+from pyping import ping 
+
 
 #sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 os.chdir(os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe()))))
@@ -97,6 +99,7 @@ class MyDaemon(Daemon):
     ruboardPasswd = ""
     db = ""
     sqlcursor = ""
+    proxyList = ""
     initialtime = datetime.datetime.now()
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     defaultEncoding = ""
@@ -124,7 +127,7 @@ class MyDaemon(Daemon):
         # kill -9 $str
         pr = mp.current_process()
         print "my pid = %s" % pr.pid
-        sys.stdout.write("stoping child:")
+        sys.stdout.write("killing child:")
         p = Popen(['ps','auxw'], stdout=PIPE, stderr=PIPE)
         out,err = p.communicate()
         out = out.split('\n')
@@ -255,7 +258,7 @@ class MyDaemon(Daemon):
         #url = "http://vk.com/login.php?"
         url = 'https://vk.com/login.php?act=login&role=fast&no_redirect=1&to=&s=0'
         response = vkopener.open(url,data_encoded)
-        self.loger(response.read())
+        #self.loger(response.read())
         #
         #vkcookie.save("%s/vk.txt" % path)
         #formdata = { "action" : "dologin ", "inmembername" : self.ruboardName, "inpassword": self.ruboardPasswd,"ref" : "http://forum.ru-board.com/board.cgi"}
@@ -522,6 +525,10 @@ class MyDaemon(Daemon):
         #    sock.send("PRIVMSG %s :Пизда ~desu~\n\r" % (channel))
         #if "нет" in text or "Нет" in text and channel == "#trollsquad":
         #    sock.send("PRIVMSG %s :Пидора ответ ~desu~\n\r" % (channel))
+        #if "юкуыефке" in text and nick == 'Gendalf' : 
+        #    daemon = MyDaemon('/tmp/elis.pid')
+        #    daemon.terminate()
+        #    daemon.restart()
         if text[indx+2:][0:5] == "$last" : 
             sqlcursor.execute(""" SELECT id,topic,link,change_data FROM torrent WHERE changed = '1' """)
             ident = sqlcursor.fetchall()
@@ -582,7 +589,8 @@ class MyDaemon(Daemon):
                 t.start()
                 self.dataProc.append(t)
             elif "$pac" in txt:
-                sock.send("NOTICE %s :%s \n\r" % (nick,self.proxyList) )
+                sock.send("NOTICE %s :%s \n\r" % (nick, self.redisdb.get('proxylistcount') )) #self.proxyList) )
+                
             elif "$get_audio_url" in txt:
                 t = mp.Process(name= "vk music process",target = self.vk_audio, args = (sock,text,defaultEncoding,sqlcursor,db,"get_track",vkopener,AUDIO_RE,True))
                 t.daemon = True
@@ -753,19 +761,26 @@ class MyDaemon(Daemon):
                     sech = re.compile(r"<title>(.+?)<\/title>", re.I).findall(data.replace("\n",""))
                     nick = self.get_nick(text)
                     #title = sech[0]
+                    charset_flag = ''
                     try:
-                        charset2 = re.compile(r'charset=(?P<ch>.*)', re.I).search(info.get('Content-Type')).group('ch')
+                        try:
+                            charset2 = re.compile(r'charset=(?P<ch>[\w\-\d]*)', re.I).search(info.get('Content-Type')).group('ch')
+                            charset_flag = '03H'
+                        except: charset2 = ''
                         if charset2 : 
                             if charset2 == 'windows-1251' : 
                                 charset2 = 'cp1251'
                             charset = charset2
                             title = sech[0]
                         else:
+                            sys.stderr.write("detecting encoding \n") ;sys.stderr.flush()
                             title = sech[0]
                             charset = self.detect_encoding(sech[0])
+                            charset_flag = '03D'
                     except:
-                        self.loger("detect encoding error")
-                        if channel == "#trollsquad" or channel == "#test" : sock.send("PRIVMSG %s :04I can not determine the encoding of the page ~baka~\n\r") % channel
+                        sys.stderr.write("detect encoding error \n") ;sys.stderr.flush()
+                        if channel == "#trollsquad" or channel == "#test" : sock.send("PRIVMSG %s :04I can not determine the encoding of the page ~baka~\n\r" % channel ) 
+                        break
                         #charset,title = self.http_title_cycle(url)
                         #self.loger("except {url:'%s',charset:'%s',title:'%s'}" % (url,charset,title))
                     #self.loger(res.msg)
@@ -791,8 +806,8 @@ class MyDaemon(Daemon):
                         self.redisdb.expire(cachedurl,60*60*24)
                         delta2 = "enter: %s , check : %s ,open: %s , read : %s , parse : %s , full : % s" % (enter_time,check_time,open_time,read_time,parse_time,delta)
                         sys.stdout.write("%s (%s) \n" % (url,delta2));sys.stdout.flush()
-                        if channel == "#trollsquad" or channel == "#test" : sock.send("PRIVMSG %s :05%s (%s) %s~desu~\n\r" \
-                                                                        % (channel, title_text,delta, useproxy))
+                        if channel == "#trollsquad" or channel == "#test" : sock.send("PRIVMSG %s :05%s {%s} (%s) %s~desu~\n\r" \
+                                                                        % (channel, title_text,charset_flag,delta, useproxy))
                     
                     else: 
                         sha512hash = sha512(title_text_src).hexdigest()
@@ -1188,7 +1203,7 @@ class MyDaemon(Daemon):
                         sha512hash = sha512(title_text).hexdigest()
                         sqlcursor.execute("""SELECT topic_sha from torrent where link LIKE '%s' """ %  ident[x][0])
                         topic_hash = sqlcursor.fetchone()[0]
-                        self.loger("%s=>%s" % (topic_hash,sha512hash))
+                        #self.loger("%s=>%s" % (topic_hash,sha512hash))
                         if topic_hash != sha512hash : 
                             sqlcursor.execute("""UPDATE torrent SET changed='1',topic = '%s',topic_sha = '%s',change_data = NULL WHERE link = '%s';""" % (title_text,sha512hash,ident[x][0]))
                             db.commit()
@@ -1293,6 +1308,15 @@ class MyDaemon(Daemon):
         setproctitle("elis: update proxy list")
         sys.stderr.write("%s started pid=%s \n" % (p.name,p.pid) )
         sys.stderr.flush()
+        try:
+            pf = open('/tmp/elis_proxy.pid','r')
+            proxy_pid = int(pf.read().strip())
+            os.kill(int(proxy_pid), SIGTERM)
+            pf.close()
+        except : pass
+        pf = open('/tmp/elis_proxy.pid','w')
+        pf.write(str(p.pid))
+        pf.close()
         info = ["Angel","Angel|off"]
         timer = 0
         addata = ""
@@ -1304,50 +1328,92 @@ class MyDaemon(Daemon):
             if timer <=0 :
                 try: 
                     ddate = ""
-                    diff1 = []
-                    diff2 = []
+                    diff1 = {}
+                    diff2 = {}
+                    dt = datetime.datetime.now()
                     request = urllib2.Request('http://antizapret.prostovpn.org/proxy.pac', None, headers)
                     try : 
                         f = open(path+"/proxy.pac","r+")
                         date = f.read()
                         ddate2 = date.split("\n")
+                        for i in ddate2 :
+                            diff1[i.strip().rstrip()] = '1'
                         ddate = date.split("\n")[1].split(" on ")[1].strip().rstrip() 
                         f.close()
                     except : setproctitle("elis: update proxy list. error on read file " )
                     ddata = urllib2.urlopen(request).read()
                     ddata2 = ddata.split("\n")
+                    for i in ddata2 :
+                        diff2[i.strip().rstrip()] = '1'
                     self.redisdb.delete('proxy')
-                    ff = open(path+'/prox','w')
+                    dt_request = datetime.datetime.now()
+                    #ff = open(path+'/prox','w')
                     for i in ddata2 :
                         ip = IP_RE.findall(i)#.strip().rstrip()#.replace('"','').replace(',','')
-                        ff.write("%s => %s\r\n" % (ip,len(ip)))
+                        #ff.write("%s => %s\r\n" % (ip,len(ip)))
                         if len(ip) > 0 : 
                             self.redisdb.hset('proxy',ip[0],1)
                             #self.redisdb.lpush('proxy',*ip)
-                    ff.close()
+                    #ff.close()
                     addata= ddata.split("\n")[1].split(" on ")[1].strip().rstrip()
+                    dt_get_ip = datetime.datetime.now()
                     if ddate != addata :
-                        ff = open(path+"/proxy.pac","w+")
-                        ff.write(ddata)
-                        ff.close()
-                        for data1 in ddate2 :
-                            if not data1 in ddata2:
-                                diff1.append(data1)
-                        for data1 in ddata2 :
-                            if not data1 in ddate2:
-                                diff2.append(data1)
-                        for i in info:
-                            total = len(ddata2) - 13
-                            added = len(diff2) - 1 
-                            deleted = len(diff1) - 1
-                            #sock.send("PRIVMSG %s :03proxy.pac modified: %s 12add:%s 04del:%s 06total IP's in blacklist = %s ~desu~\n\r" % (i,addata,added,deleted,total))
+                        t = threading.Thread(target=self.update_proxy_thread, args=(ddata,))
+                        t.daemon = True
+                        t.setName("update proxy thread")
+                        t.start()    
+                        dt_diff_start = datetime.datetime.now()
+                        self.redisdb.delete('proxy_diff_add')
+                        self.redisdb.delete('proxy_diff_del')
+                        t = threading.Thread(target=self.get_proxy_diff, args=(diff1,diff2,'proxy_diff_add','proxy_add'))
+                        t.daemon = True
+                        t.setName("add ip")
+                        t.start()
+                        t = threading.Thread(target=self.get_proxy_diff, args=(diff2,diff1,'proxy_diff_del','proxy_del'))
+                        t.daemon = True
+                        t.setName("delete ip")
+                        t.start()
+                        time.sleep(1)
+                        while int(self.redisdb.get('proxy_add')) and int(self.redisdb.get('proxy_del')) : pass
+                        #for data1 in ddate2 :
+                        #    if not data1 in ddata2:
+                        #        diff1.append(data1)
+                        #for data1 in ddata2 :
+                        #    if not data1 in ddate2:
+                        #        diff2.append(data1)
+                        #diff2    
+                        total = len(ddata2) - 13
+                        added = int(self.redisdb.hlen('proxy_diff_add') ) - 1 
+                        deleted = int( self.redisdb.hlen('proxy_diff_del') ) - 1
+                        #sock.send("PRIVMSG %s :03proxy.pac modified: %s 12add:%s 04del:%s 06total IP's in blacklist = %s ~desu~\n\r" % (i,addata,added,deleted,total))
                         #sock.send("PRIVMSG %s :03proxy.pac modified: %s 02add:%s 04del:%s 10total IP's in blacklist = %s ~desu~\n\r" % ("#test",addata,added,deleted,total))
-                        q = "proxy|03proxy.pac modified: %s 02add:%s 04del:%s 10total IP's in blacklist = %s ~desu~|%s" % (addata,added,deleted,total,p.pid)
+                        dt2 = datetime.datetime.now()
+                        delta1 = str(dt2 - dt).split(":")[2].split(".")
+                        minutes = int(str(dt2 - dt).split(":")[1])
+                        if int(delta1[0]) != 0 : delta = "%s.%s s" % (delta1[0],delta1[1][0:4])
+                        else : delta = "0.%s sec" % delta1[1][0:4]
+                        if minutes != 0:
+                            delta = "%s min %s" % (minutes,delta) 
+                        delta_request = str(dt_request - dt).split(":")[2].split(".")
+                        delta_get_ip = str(dt_get_ip - dt_request).split(":")[2].split(".")
+                        delta_diff = str(dt2 - dt_diff_start).split(":")[2].split(".")
+                        delta_all = "request: %s.%s s,get ip: %s.%s s,calculation of the difference: %s.%s s" % (delta_request[0],delta_request[1][0:4],\
+                        	        delta_get_ip[0],delta_get_ip[1][0:4],delta_diff[0],delta_diff[1][0:4] )
+                        q = "proxy|03proxy.pac modified: %s 02add:%s 04del:%s 10total IP's in blacklist = %s (%s,total:%s)~desu~|%s" % (addata,added,deleted,total,delta_all,delta,p.pid)
                         queue.put(q)
+                        self.redisdb.set('proxylistcount',q.split('|')[1] )
+                        #self.redisdb.expire(proxylist,60*60*3)
                     mod_time = time.ctime(os.path.getmtime(path+"/proxy.pac"))
                     setproctitle("elis: update proxy list. proxy.pac last modified: %s | check = %s" % (addata,check) )
-                    
-                    timer = 18000/5  # 18000
+                    today = datetime.datetime.now()
+                    update_delta = datetime.timedelta(hours=1) # дельта в 2 дня
+                    now_date = today + update_delta
+                    next_update = datetime.datetime.now().replace(now_date.year,now_date.month,now_date.day,now_date.hour,8,0)
+                    update_delta = next_update - today
+                    timer = update_delta.seconds  # 18000
+                    del diff1
+                    del diff2
+                    #timer = 60*2
                 except: 
                     setproctitle("elis: update proxy list. error in source code " )
                     time.sleep(60)  
@@ -1369,6 +1435,36 @@ class MyDaemon(Daemon):
             timer -= 60
             setproctitle("elis: update proxy list. proxy.pac last modified: %s. next update after %s seconds " % (addata,timer) )
         greeting_maker.proces("del", p.name, p.pid)
+    def update_proxy_thread(self,ddata):
+        ff = open(path+"/proxy.pac","w+")
+        ff.write(ddata)
+        ff.close()
+        try:
+            ff = open("/patch/to/your/web/site/.proxy.pac","w+")
+            ff.write(ddata)
+            ff.close()
+        except: pass
+    def get_proxy_diff(self,ddate2,ddata2,diff,name):
+        self.redisdb.set(name,'1')
+        dt = datetime.datetime.now()
+        log = ''
+        for i in ddate2.keys():
+            if not i in ddata2: 
+                self.redisdb.hset(diff,i,i)
+                if name == 'proxy_add' : log = "+ %s" %i
+                else : log = "- %s" %i
+                self.loger( log )
+                #diff1.append(data1)
+        self.redisdb.set(name,'0')
+        dt1 = datetime.datetime.now()
+        delta = dt1 - dt
+        log =  "thread <font color=green>%s</font> started at <font color=blue>%s</font>. end time is <font color=red>%s</font>. delta: <font color=#FF00FF>%s</font>" % (name,dt,dt1,delta)
+        try:
+            self.loger( log )
+        except: sys.stderr.write("%s \n" % log  )
+        #for data1 in ddata2 :
+        #    if not data1 in ddate2:
+        #        diff2.append(data1)
 ##Angel|off
 if __name__ == "__main__":
     daemon = MyDaemon('/tmp/elis.pid')
