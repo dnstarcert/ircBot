@@ -46,10 +46,7 @@ import gzip
 from setproctitle import setproctitle
 import Pyro4, redis
 from pyping import ping 
-import asyncore
-import asynchat
-import socket
-
+from termcolor import colored, cprint
 
 #sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 os.chdir(os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe()))))
@@ -57,7 +54,7 @@ threadLife = True
 path = os.path.abspath(os.path.dirname(__file__))
 CHANNEL_RE = re.compile('PRIVMSG (#?[\w\-]+) :')
 NICK_RE = re.compile(":([\w\-\[\]\|`]+)!")
-IDENT_RE = re.compile("!([\w\-\[\]\|`\.]+)@")
+IDENT_RE = re.compile("!.?([\w\-\[\]\|`\.]+)@")
 IMAGE_RE = re.compile(r"((ht|f)tps?:\/\/[\w\.-]+\/[\w\.-\/^,]+\.(jpg|png|gif|bmp))")
 HTTP_RE  = re.compile(r"(https?:\/\/[^\s^,]+)")
 IGNORE_RE = re.compile(r"(https?:\/\/pictures.gendalf.info)")
@@ -86,6 +83,11 @@ vkcookie = MozillaCookieJar()
 vkcookie.load("%s/vk.txt" % path)
 vkopener = urllib2.build_opener(urllib2.HTTPCookieProcessor(vkcookie))
 
+
+import asyncore
+import asynchat
+import socket
+
 class Lobby(object):
     def __init__(self):
         self.clients = set()
@@ -104,7 +106,7 @@ class Client(asynchat.async_chat):
     def __init__(self, conn, lobby):
         asynchat.async_chat.__init__(self, sock=conn)
         self.in_buffer = ""
-        self.set_terminator("\n\r")
+        self.set_terminator("n")
  
         self.lobby = lobby
         self.lobby.join(self)
@@ -125,7 +127,7 @@ class Server(asynchat.async_chat):
         asynchat.async_chat.__init__(self)
         self.create_socket(socket.AF_INET, socket.SOCK_STREAM)
         self.set_reuse_addr()
-        self.bind(("0.0.0.0", 3310))
+        self.bind(("0.0.0.0", 33333))
         self.listen(255)
         self.lobby = None
  
@@ -135,6 +137,7 @@ class Server(asynchat.async_chat):
     def handle_accept(self):
         sock, addr = self.accept()
         client = Client(sock, self.lobby)
+
 
 class QueueManager(BaseManager): pass
 queue = mp.Queue()
@@ -157,6 +160,8 @@ class MyDaemon(Daemon):
     initialtime = datetime.datetime.now()
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     defaultEncoding = ""
+    my_nick = ""
+    my_pass = ""
     headers = [('User-Agent', "Mozilla/5.0 (X11; Linux x86_64; rv:36.0) Gecko/20100101 Firefox/36.0"),
                    ('Accept','text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'),
                    ('Accept-Language','en-US,en;q=0.5'),
@@ -177,7 +182,7 @@ class MyDaemon(Daemon):
         #sys.stderr.flush()
     
     def terminate(self):
-        #global processes  str=`ps auxw | grep elis.py | awk ' {print $2 } '`
+        #global processes  str=`ps auxw | grep elis_rizon.py | awk ' {print $2 } '`
         # kill -9 $str
         pr = mp.current_process()
         print "my pid = %s" % pr.pid
@@ -186,7 +191,7 @@ class MyDaemon(Daemon):
         out,err = p.communicate()
         out = out.split('\n')
         for istr in out:
-            if "elis:" in istr:
+            if "elis_rizon" in istr:
                 pid = int(PID_RE.match(istr).group(1))
                 sys.stdout.write("%s " % pid)
                 sys.stdout.flush()
@@ -205,7 +210,7 @@ class MyDaemon(Daemon):
 
     def exterminate(self):
     	pr = mp.current_process()
-    	pf = file('/tmp/elis.pid','r')
+    	pf = file('/tmp/elis_rizon.pid','r')
         pid = int(pf.read().strip())
         pf.close()
         
@@ -216,7 +221,7 @@ class MyDaemon(Daemon):
     	        os.kill(int(pid1), SIGTERM)
                 time.sleep(0.1)
             else: 
-                os.remove('/tmp/elis.pid')
+                os.remove('/tmp/elis_rizon.pid')
                 os.kill(pid, SIGTERM)
 
     def listProcesses(self):
@@ -232,7 +237,7 @@ class MyDaemon(Daemon):
     def run(self):
         #print "daemon started"
         threadLife = True
-        setproctitle("elis: main process")
+        setproctitle("elis_rizon: main process")
         config = ConfigParser.RawConfigParser()
         config.read('%s/bot.cfg' % path)
         channels = config.get("bot", "channels").split(",")
@@ -261,38 +266,43 @@ class MyDaemon(Daemon):
         time.sleep(0.3)
         pool = redis.ConnectionPool(host='localhost', port=6379, db=0)
         self.redisdb = redis.Redis(connection_pool=pool)
-        self.connectToServer(config.get("bot", "nick"),
-                    config.get("bot", "server"),
-                    config.get("bot", "port"))
         self.lobby = Lobby()
         server = Server()
         server.set_lobby(self.lobby)
-        #telnet = mp.Process(name= "telnet server process",target=self.async_server, args=())
-        #telnet.daemon = True
-        #self.dataProc.append(telnet)
-        #telnet.start()
         t1 = threading.Thread(target=asyncore.loop, args=())
         t1.daemon = True
         t1.setName("asyncore")
         t1.start()
+        self.connectToServer()
+        
+        
         #QueueManager.register('get_queue', callable=lambda:queue)
         #m = QueueManager(address=('127.0.0.1', 50000), authkey='abracadabra')
         #s = m.get_server()
         #s.serve_forever()
-    def async_server(self):
-        setproctitle("elis: telnet server")
-        server = Server()
-        server.set_lobby(self.lobby)
-        asyncore.loop()
 
-    def connectToServer(self,NICK,HOST,PORT):
+    def connectToServer(self):
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.sock = sock
-        my_nick = "NICK %s\n\r" % NICK
+        config = ConfigParser.RawConfigParser()
+        config.read('%s/bot.cfg' % path)
+        NICK = config.get("bot", "nick")
+        PASS = config.get("bot", "pass")
+        HOST = config.get("bot", "server")
+        PORT = config.get("bot", "port")
+        self.my_nick = str(NICK).strip().rstrip()
+        self.my_pass = str(PASS).strip().rstrip()
+        my_nick = "NICK %s\n\r" % str(self.my_nick)
         sock.connect((HOST, int(PORT)))
-        sock.send('PONG LAG123124124 \n\r')
+        time.sleep(5)
+        sock.send('CAP LS\n\r')
+        sock.send("NICK my_nick\n\r")
         sock.send('USER Satori 95 * :Phantom \n\r')
-        sock.send(my_nick)
+        sock.send('CAP REQ :userhost-in-names multi-prefix znc.in/server-time-iso\n\r')
+        sock.send('CAP END\n\r')
+        sock.send("PRIVMSG nickserv :ghost %s %s\n\r" % (self.my_nick,self.my_pass) )
+        sock.send("PRIVMSG nickserv :release %s %s\n\r" % (self.my_nick,self.my_pass) ) 
+        sock.send('PONG 123124124 \n\r')
         #recv_data(sock)
         config = ConfigParser.RawConfigParser()
         config.read('%s/bot.cfg' % path)
@@ -302,14 +312,53 @@ class MyDaemon(Daemon):
         myconf = {} # тут должны быть все переменные передающиеся в функции
         #self.loger("starting bot")
         #self.defaultEncoding = defaultEncoding
-        t = threading.Thread(name = "Bot",target=self.recv_data, args=(sock,onStart,my_nick,self.defaultEncoding,channels,self.sqlcursor,self.db,))
+        #while True : 
+        #    #try: 
+        #        recv_data = self.sock.recv(4096)
+        #        sys.stderr.write("RAW:%s" % recv_data )
+        #        sys.stderr.flush()
+        ##time.sleep(15)
+        t = threading.Thread(name = "Bot",target=self.recv_data, args=(sock,onStart,my_nick,self.defaultEncoding,channels,))
         t.daemon = False
         t.start()
+  
+    def test_db_connection(self):     
+        global threadLife
+        config = ConfigParser.RawConfigParser()
+        config.read('%s/bot.cfg' % path)
+        db_user=config.get("db", "user")
+        db_passwd=config.get("db", "passwd")
+        baseStatus = True
+        #self.db = MySQLdb.connect(host="localhost", user=db_user, passwd=db_passwd, db="pictures", charset='utf8')
+        #self.sqlcursor = self.db.cursor()
+        while threadLife:
+            try:
+                self.sqlcursor.execute("""SHOW STATUS WHERE `Variable_name` = 'Aborted_connects'; """ )
+                status = self.sqlcursor.fetchone()
+                if not status :
+                    text = colored('MySQL Status : FAIL', 'yellow', attrs=['blink']) 
+                    self.db = MySQLdb.connect(host="localhost", user=db_user, passwd=db_passwd, db="pictures", charset='utf8')
+                    self.sqlcursor = self.db.cursor()
+                else: 
+                    if not baseStatus :
+                        self.lobby.send_to_all("\033[34mMySQL Status : OK\033[0m\n\r")
+                        baseStatus = True
+            except:
+                text = colored('MySQL Status : OFFLINE', 'red', attrs=['blink']) 
+                self.lobby.send_to_all("%s\n\r" % text)
+                try:
+                    self.db = MySQLdb.connect(host="localhost", user=db_user, passwd=db_passwd, db="pictures", charset='utf8')
+                    self.sqlcursor = self.db.cursor()
+                    baseStatus = False
+                except: pass
+            time.sleep(30)
+        sys.stderr.write("Thread DEAD \n"  )
+        sys.stderr.flush()
 
     def vkauth(self):
         global vkcookie,path,vkopener
         p = mp.current_process()
-        setproctitle("elis: vk authentification")
+        setproctitle("elis_rizon: vk authentification")
         greeting_maker=Pyro4.Proxy(self.uri)
         greeting_maker.proces("add", p.name, p.pid)
         #self.loger("send login info")
@@ -362,7 +411,7 @@ class MyDaemon(Daemon):
         self.uri=listing_daemon.register(greeting_maker)
         sys.stderr.write("Ready. Object uri =%s \n" % self.uri)
         sys.stderr.flush()
-        setproctitle("elis: main process. uri = %s" % self.uri)
+        setproctitle("elis_rizon: main process. uri = %s" % self.uri)
         listing_daemon.requestLoop()
 
     def redisCheck(self, sock, url, channel):
@@ -404,15 +453,18 @@ class MyDaemon(Daemon):
                 #f.close()
                 #sock.send("NOTICE Gendalf :Thread count %s : %s \n\r" % (itemsCount,name_string))
         #except: self.loger("<font color=red >thread threadNumber is dead</font>")
-    def recv_data(self,sock,onStart,my_nick,defaultEncoding,channels,sqlcursor,db):
+    def recv_data(self,sock,onStart,my_nick,defaultEncoding,channels):
         global threadLife
-
-        while threadLife : 
+        sqlcursor = self.sqlcursor
+        db = self.db
+        while True : 
             try: 
-                recv_data = sock.recv(4096)
+                recv_data = self.sock.recv(4096)
+                #sys.stderr.write("RAW:%s" % recv_data )
+                #sys.stderr.flush()
             except:
                 threadLife = False
-                print "error"
+                print "socket error"
                 sock.close()
                 db.close()
                 self.exterminate()
@@ -421,7 +473,7 @@ class MyDaemon(Daemon):
             if not recv_data:
                 threadLife = False
                 sock.close()
-                print "error"
+                print "no data. socket closed"
                 self.exterminate()
                 db.close()
                 #self.run()
@@ -430,7 +482,7 @@ class MyDaemon(Daemon):
                 #print recv_data
                 #sys.stdout.write(recv_data)
                 self.initialtime = datetime.datetime.now()
-                t = threading.Thread( target=self.worker, args=(recv_data,onStart,sock,my_nick,defaultEncoding,channels,sqlcursor,db,))
+                t = threading.Thread( target=self.worker, args=(recv_data,onStart,sock,my_nick,defaultEncoding,channels,))
                 t.daemon = False
                 t.setName("Data process")
                 t.start()
@@ -440,45 +492,56 @@ class MyDaemon(Daemon):
                 #vk.setName("VK Message reader")
                 #vk.start()
     
-    def worker(self,text,onStart,sock,my_nick,defaultEncoding,channels,sqlcursor,db):
+    def worker(self,text,onStart,sock,my_nick,defaultEncoding,channels):
         #print text[:-2]
         #self.loger("trying to start bot : %s" % text[:-2])
+        #print "RAW TEXT: %s \n" % text
+        sqlcursor = self.sqlcursor
+        db = self.db
+        if text.find("PONG") == -1 : self.lobby.send_to_all(text)
         #sys.stderr.write("RAW TEXT: %s \n" % text )
         #sys.stderr.flush()
-        if text.find("PONG") == -1 : self.lobby.send_to_all(text)
         if text.find("PING :") == 0:
             self.loger("sending PONG")
             sock.send(u"%s\n\r" % (text.replace("PING", "PONG")))
-        elif text.find("Global Users:") > 0 or text.find("global Users") > 0:
+        elif text.find("Global Users:") > 0 or text.find("global users") > 0:
             if onStart == True:
                 onStart = False
                 #print "JOIN: "
-                sock.send("VHOST vk lls39vj\n\r")
-                sock.send("PRIVMSG nickserv :IDENTIFY YED35\n\r")
+                #sock.send("VHOST vk lls39vj\n\r")
+                sock.send("NICK %s \n\r" % str(self.my_nick) )
+                sock.send("PRIVMSG nickserv :IDENTIFY %s\n\r" % self.my_pass)
+                sock.send("PROTOCTL NAMESX\n\r")
+                sock.send("USERHOST %s\n\r" % self.my_nick)
                 charset = self.detect_encoding(text)
                 for channel in channels :
                     sock.send('JOIN %s \n\r' % channel)
                 #print "Connected"
                 #self.loger(sock.recv(4096))
-                sock.send("PRIVMSG chanserv :op #trollsquad Feiris\n\r")
+                sock.send("PRIVMSG chanserv :op #trollsquad %s\n\r" % self.my_nick)
+                
                 #self.loger(sock.recv(4096)) 
                 #self.loger("starting informer")
-                torrent = mp.Process(name= "torrent informer",target=self.informer,args=(sock,sqlcursor,db,defaultEncoding,))
-                torrent.daemon = True
+                #torrent = mp.Process(name= "torrent informer",target=self.informer,args=(sock,sqlcursor,db,defaultEncoding,))
+                #torrent.daemon = True
                 #t.setName("informer")
-                torrent.start()
-                self.dataProc.append(torrent)
-                time.sleep(1)
+                #torrent.start()
+                #self.dataProc.append(torrent)
+                #time.sleep(1)
                 #self.loger("starting ping")
                 pingProcess = mp.Process(name= "ping process",target=self.send_ping, args=(sock,))
                 pingProcess.daemon = True
                 self.dataProc.append(pingProcess)
                 pingProcess.start()
-                proxyProcess = mp.Process(name= "proxy pac update process",target=self.updateProxyList, args=(sock,))
-                proxyProcess.daemon = True
-                self.dataProc.append(proxyProcess)
-                proxyProcess.start()
-                time.sleep(1)
+                #stoleNick = mp.Process(name= "ping process",target=self.stoleNick, args=(sock,))
+                #stoleNick.daemon = True
+                #self.dataProc.append(stoleNick)
+                #stoleNick.start()
+                #proxyProcess = mp.Process(name= "proxy pac update process",target=self.updateProxyList, args=(sock,))
+                #proxyProcess.daemon = True
+                #self.dataProc.append(proxyProcess)
+                #proxyProcess.start()
+                #time.sleep(1)
                 if(self.vk_user !='' and self.vk_passwd !=''):
                     #self.loger("trying login to vk")
                     vk_thread = mp.Process(name= "VK authentification",target=self.vkauth)
@@ -491,7 +554,12 @@ class MyDaemon(Daemon):
                 t = threading.Thread(target=self.threadNumber, args=(sock,))
                 t.daemon = True
                 t.setName("threadNumber")
-                t.start()               
+                t.start()      
+                t2 = threading.Thread(target=self.test_db_connection, args=())
+                t2.daemon = True
+                t2.setName("MySQLdb check")
+                t2.start()
+                time.sleep(0.3)         
                 #self.dataProc.append(t)
                 #self.vk_message(sock,defaultEncoding,0)
                 #vk = threading.Thread(target=self.vk_message, args=(sock,defaultEncoding,0,sqlcursor,db))
@@ -525,20 +593,38 @@ class MyDaemon(Daemon):
             except:
                 nick = "py-ctcp"
             sock.send("NOTICE %s :VERSION Simple bot writen on python\n\r" % nick)
-        elif "NICK" in text: pass
+        elif "NICK" in text: 
+            nick = self.get_nick(text)
+            if nick == my_nick:
+                indx = text.rfind("NICK") + 6
+                self.redisdb.set('nick', text[indx:].rstrip())
             #if get_nick(text) == my_nick:
-            #    indx = text.rfind("NICK") + 6
+            #    
             #    nick.setText(text[indx:])
             #    chat_box["RAW"].append("<font color=red>[%s] </font>\
             #        <font color=orange>Your nick is %s now</font>" \
-            #        % (time.strftime("%H:%M:%S") ,text[indx:]))
+            #        % (time.strftime("%H:%M:%S") ,text[indx:])) : ping 52387482734817
         elif "PONG" in text: pass
+        elif "PING" in text: pass
+            #try: 
+                #nick = self.get_nick(text)
+                #indx = text.rfind("PING") + 5
+                #pong = long(str(time.time()).split(".")[0] ) - long(text[indx:indx+10])
+                #self.lobby.send_to_all(">>PING: %s" % text[indx:])
+                #reply = "NOTICE %s :PING %s\n\r" % (nick,pong)
+                #sock.send(reply)
+                #self.lobby.send_to_all("<<PONG: %s\n\r" % pong)
+            #except: pass      
+        elif "TIME" in text:
+            sock.send("PRIVMSG %s :TIME %s\n\r" % (self.get_nick(text),datetime.datetime.now().strftime("%a %b %d %H:%M:%S") ) )
+            #sock.send("NOTICE %s :TIME %s\n\r" % (self.get_nick(text),datetime.datetime.now().strftime("%a %b %d %H:%M:%S") ) )
         elif "PRIVMSG" in text: 
             t = threading.Thread(target=self.privmsg, args=(text,sock,sqlcursor,db,defaultEncoding,))
             t.daemon = True
             t.setName("privmsg")
             t.start()
         elif "NOTICE" in text:
+            #sock.send("NOTICE %s :stage -2: Starting thread\n\r" % self.get_nick(text))
             t = threading.Thread(target=self.notice, args=(text,sock,sqlcursor,db,defaultEncoding,))
             t.daemon = True
             t.setName("notice")
@@ -549,6 +635,15 @@ class MyDaemon(Daemon):
             sys.stderr.write("ELSE TEXT: %s \n" % text )
             sys.stderr.flush()
     
+    def stoleNick(self,sock):
+        setproctitle("elis_rizon: interceptor")
+        while True:
+            sock.send("NICK Feiris\n\r")
+            if self.redisdb.get('nick') == "Feiris":
+                sock.send("PRIVMSG nickserv :group Elis YED35\n\r")
+                break
+            time.sleep(60)
+
     def privmsg(self,text,sock,sqlcursor,db,defaultEncoding):
         #global base,dbl
         #sys.stderr.write("worker : %s \n" % text )
@@ -597,7 +692,7 @@ class MyDaemon(Daemon):
         #if "нет" in text or "Нет" in text and channel == "#trollsquad":
         #    sock.send("PRIVMSG %s :Пидора ответ ~desu~\n\r" % (channel))
         #if "юкуыефке" in text and nick == 'Gendalf' : 
-        #    daemon = MyDaemon('/tmp/elis.pid')
+        #    daemon = MyDaemon('/tmp/elis_rizon.pid')
         #    daemon.terminate()
         #    daemon.restart()
         if text[indx+2:][0:5] == "$last" : 
@@ -642,15 +737,16 @@ class MyDaemon(Daemon):
 
     def notice(self,text,sock,sqlcursor,db,defaultEncoding):
         #global base,dbl
-        try:
+        #try:
             channel = "#trollsquad"
             nick = self.get_nick(text)
-            indx = text.rfind("NOTICE") + len("Feiris") + 9
+            indx = text.rfind("NOTICE") + len(self.my_nick) + 9
             color = re.compile(r'([0-9]{1,2})')
             text = color.sub("",text)
             text = text.replace("","").replace("\n","").replace("\r","").replace("",'')
             charset = self.detect_encoding(text)
             txt = text[indx:]
+            #sock.send("NOTICE %s :stage -1: Parsing command. Command is %s\n\r" % (self.get_nick(text), txt  ) )
             #self.loger("nick:%s<br>\ntext:%s<br>\nindex:%s" % (nick,txt,indx))
             if "$np" in txt: 
                 #self.vk_audio(sock,text,defaultEncoding,sqlcursor,db,"",vkopener,AUDIO_RE,True)
@@ -659,6 +755,7 @@ class MyDaemon(Daemon):
                 #t.setName("informer")
                 t.start()
                 self.dataProc.append(t)
+                #print "Start VK Thread"
             elif "$pac" in txt:
                 sock.send("NOTICE %s :%s \n\r" % (nick, self.redisdb.get('proxylistcount') )) #self.proxyList) )
                 
@@ -670,7 +767,7 @@ class MyDaemon(Daemon):
                 self.dataProc.append(t)
             elif "$ms" in txt:
                 self.sock.send("%s %s :%s (%s) \n\r" % ('NOTICE',nick,str(self.redisdb.get('track')).encode(defaultEncoding) , self.redisdb.get('trackName')) )
-        except: pass
+        #except: pass
 
 
     def http_title_cycle(self,url) : 
@@ -739,7 +836,7 @@ class MyDaemon(Daemon):
                 #url2 = url2.encode('idna')
                 url2 = "%s%s" % (pre_url[0],url2.encode('idna'))
                 url = re.sub(HOST_RE,url2,url)
-                setproctitle("elis: parse from %s" % url )
+                setproctitle("elis_rizon: parse from %s" % url )
                 dt = datetime.datetime.now() 
                 enter_time = dt - self.initialtime
                 #sys.stderr.write("start process \n") ;sys.stderr.flush()
@@ -879,7 +976,7 @@ class MyDaemon(Daemon):
                         sys.stdout.write("%s (%s) \n" % (url,delta2));sys.stdout.flush()
                         if channel == "#trollsquad" or channel == "#test" : sock.send("PRIVMSG %s :05%s {%s} (%s) %s~desu~\n\r" \
                                                                         % (channel, title_text,charset_flag,delta, useproxy))
-                    
+                        self.lobby.send_to_all( "\033[32m%s\033[0m\n\r" % title_text)
                     else: 
                         sha512hash = sha512(title_text_src).hexdigest()
                         sqlcursor.execute("""SELECT id from torrent where topic_sha LIKE '%s' """ %  sha512hash)
@@ -1000,7 +1097,7 @@ class MyDaemon(Daemon):
             #sys.stderr.flush()
             channel = self.get_channel(text)
             url = x[0]
-            setproctitle("elis: image parser from %s" % url )
+            setproctitle("elis_rizon: image parser from %s" % url )
             if self.redisCheck(sock,url,channel) : break
             #print "url: %s" % url
             headers = {'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:36.0) Gecko/20100101 Firefox/36.0'}
@@ -1086,10 +1183,10 @@ class MyDaemon(Daemon):
         greeting_maker.proces("del", p.name, p.pid)
     
     def vk_audio(self,sock,text,defaultEncoding,sqlcursor,db,old_track,vkopener,AUDIO_RE,notice=False):
-       # sock.send("NOTICE %s :stage 0: send info\n\r" % self.get_nick(text))
+        #sock.send("NOTICE %s :stage 0: send info\n\r" % self.get_nick(text))
         burning = datetime.datetime.now()
         p = mp.current_process()
-        setproctitle("elis: %s" % p.name )
+        setproctitle("elis_rizon: %s" % p.name )
         greeting_maker=Pyro4.Proxy(self.uri)
         greeting_maker.proces("add", p.name, p.pid)
         host = "vk.com"
@@ -1102,7 +1199,9 @@ class MyDaemon(Daemon):
         sqlcursor.execute("""SELECT user_id from vk_ident where nick LIKE '%s' """ %  nick)
         ident = int(sqlcursor.fetchone()[0])
         nick = self.get_nick(text)
+        #sock.send("NOTICE %s :stage 1: Your ID is %s\n\r" % (self.get_nick(text),ident ) )
         if ident == None or ident == 0: return None
+        #sock.send("NOTICE %s :stage 2: requesting music tag\n\r" % self.get_nick(text))
         url = 'https://vk.com/%s' % ident
         base_request = datetime.datetime.now()
         base_request_delta = str(base_request - burning).split(":")[2]
@@ -1176,7 +1275,7 @@ class MyDaemon(Daemon):
         p = mp.current_process()
         greeting_maker=Pyro4.Proxy(self.uri)
         greeting_maker.proces("add", p.name, p.pid)
-        setproctitle("elis: vk Message" % url )
+        setproctitle("elis_rizon: vk Message" % url )
         start = True
         while start :    
            time.sleep(3)
@@ -1226,7 +1325,7 @@ class MyDaemon(Daemon):
     def send_ping(self,sock):
         global threadLife
         p = mp.current_process()
-        setproctitle("elis: ping")
+        setproctitle("elis_rizon: ping")
         sys.stderr.write("%s started pid=%s \n" % (p.name,p.pid) )
         sys.stderr.flush()
         greeting_maker=Pyro4.Proxy(self.uri)
@@ -1238,13 +1337,13 @@ class MyDaemon(Daemon):
             except Empty: pass
             finally:
                 time.sleep(10)
-                sock.send("PING :LAG%s\n\r" % time.time())
+                sock.send("PING :%s\n\r" % str(time.time()).split(".")[0]  )
         greeting_maker.proces("del", p.name, p.pid)
 
     def informer(self,sock,sqlcursor,db,defaultEncoding):
         headers = {'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:36.0) Gecko/20100101 Firefox/36.0'}
         p = mp.current_process()
-        setproctitle("elis: informer")
+        setproctitle("elis_rizon: informer")
         sys.stderr.write("%s started pid=%s \n" % (p.name,p.pid) )
         sys.stderr.flush()
         greeting_maker=Pyro4.Proxy(self.uri)
@@ -1376,7 +1475,7 @@ class MyDaemon(Daemon):
     def updateProxyList(self,sock):
         headers = {'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:36.0) Gecko/20100101 Firefox/36.0'}
         p = mp.current_process()
-        setproctitle("elis: update proxy list")
+        setproctitle("elis_rizon: update proxy list")
         sys.stderr.write("%s started pid=%s \n" % (p.name,p.pid) )
         sys.stderr.flush()
         try:
@@ -1411,7 +1510,7 @@ class MyDaemon(Daemon):
                             diff1[i.strip().rstrip()] = '1'
                         ddate = date.split("\n")[1].split(" on ")[1].strip().rstrip() 
                         f.close()
-                    except : setproctitle("elis: update proxy list. error on read file " )
+                    except : setproctitle("elis_rizon: update proxy list. error on read file " )
                     ddata = urllib2.urlopen(request).read()
                     ddata2 = ddata.split("\n")
                     for i in ddata2 :
@@ -1475,7 +1574,7 @@ class MyDaemon(Daemon):
                         self.redisdb.set('proxylistcount',q.split('|')[1] )
                         #self.redisdb.expire(proxylist,60*60*3)
                     mod_time = time.ctime(os.path.getmtime(path+"/proxy.pac"))
-                    setproctitle("elis: update proxy list. proxy.pac last modified: %s | check = %s" % (addata,check) )
+                    setproctitle("elis_rizon: update proxy list. proxy.pac last modified: %s | check = %s" % (addata,check) )
                     today = datetime.datetime.now()
                     update_delta = datetime.timedelta(hours=1) # дельта в 2 дня
                     now_date = today + update_delta
@@ -1486,7 +1585,7 @@ class MyDaemon(Daemon):
                     del diff2
                     #timer = 60*2
                 except: 
-                    setproctitle("elis: update proxy list. error in source code " )
+                    setproctitle("elis_rizon: update proxy list. error in source code " )
                     time.sleep(60)  
             try :
                 pid = greeting_maker.listProcesses()[p.name]
@@ -1499,12 +1598,12 @@ class MyDaemon(Daemon):
                     sys.stderr.write("%s -> %s \n" % (pid,p.pid)  )
                     sys.stderr.flush()
             except :
-                setproctitle("elis: update proxy list. error on sending request. uri = %s" % self.uri )
+                setproctitle("elis_rizon: update proxy list. error on sending request. uri = %s" % self.uri )
                 time.sleep(60)
                 check = False
             time.sleep(60)
             timer -= 60
-            setproctitle("elis: update proxy list. proxy.pac last modified: %s. next update after %s seconds " % (addata,timer) )
+            setproctitle("elis_rizon: update proxy list. proxy.pac last modified: %s. next update after %s seconds " % (addata,timer) )
         greeting_maker.proces("del", p.name, p.pid)
     def update_proxy_thread(self,ddata):
         ff = open(path+"/proxy.pac","w+")
@@ -1541,7 +1640,7 @@ class MyDaemon(Daemon):
         #        diff2.append(data1)
 ##Angel|off
 if __name__ == "__main__":
-    daemon = MyDaemon('/tmp/elis.pid')
+    daemon = MyDaemon('/tmp/elis_rizon.pid')
     if len(sys.argv) == 2:
         if 'start' == sys.argv[1]:
             daemon.start()        
