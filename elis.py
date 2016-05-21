@@ -301,7 +301,9 @@ class MyDaemon(Daemon):
         sock.send('CAP REQ :userhost-in-names multi-prefix znc.in/server-time-iso\n\r')
         sock.send('CAP END\n\r')
         sock.send("PRIVMSG nickserv :ghost %s %s\n\r" % (self.my_nick,self.my_pass) )
+        time.sleep(1)
         sock.send("PRIVMSG nickserv :release %s %s\n\r" % (self.my_nick,self.my_pass) ) 
+        time.sleep(.5)
         sock.send('PONG 123124124 \n\r')
         #recv_data(sock)
         config = ConfigParser.RawConfigParser()
@@ -510,7 +512,9 @@ class MyDaemon(Daemon):
                 #print "JOIN: "
                 #sock.send("VHOST vk lls39vj\n\r")
                 sock.send("NICK %s \n\r" % str(self.my_nick) )
+                time.sleep(.5)
                 sock.send("PRIVMSG nickserv :IDENTIFY %s\n\r" % self.my_pass)
+                time.sleep(.5)
                 sock.send("PROTOCTL NAMESX\n\r")
                 sock.send("USERHOST %s\n\r" % self.my_nick)
                 charset = self.detect_encoding(text)
@@ -677,7 +681,7 @@ class MyDaemon(Daemon):
                 #t.setName("image")
                 t.start()
                 self.dataProc.append(t)
-            elif HTTP_RE.search(text) and not IGNORE_RE.search(text) and not "ДРОН НЕ СМОТРИ" in text:
+            elif HTTP_RE.search(text) and not IGNORE_RE.search(text) and not "ДРОН НЕ СМОТРИ" in text and not "$dns" in text:
                 #print "#%s %s:%s" % (channel,nick,text)
                 t = mp.Process(name= "http process",target=self.http_title,args=(text, channel,sock,sqlcursor,db,defaultEncoding,))
                 t.daemon = True
@@ -719,6 +723,11 @@ class MyDaemon(Daemon):
             vk.daemon = True
             vk.setName("VK Message reader")
             vk.start()
+        if text[indx+2:][0:4] == "$dns": 
+            dns_t = threading.Thread(target=self.dns_resolv, args=(sock,text,channel))
+            dns_t.daemon = True
+            dns_t.setName("VK Message reader")
+            dns_t.start()
         if text[indx+2:][0:5] == "$kill" and nick == "Gendalf" : self.exterminate()
         st = MUSIC_RE.search(text)
         if st :
@@ -769,6 +778,18 @@ class MyDaemon(Daemon):
                 self.sock.send("%s %s :%s (%s) \n\r" % ('NOTICE',nick,str(self.redisdb.get('track')).encode(defaultEncoding) , self.redisdb.get('trackName')) )
         #except: pass
 
+    def dns_resolv(self,sock,text,channel):
+        #sock.send("PRIVMSG %s :05host %s \n\r" % (channel, text))
+        host = re.compile(r"\$dns (.*)").findall(text)[0]
+        first = re.compile(r"((ht|f)tps?:\/\/)").sub("",host)
+        second = first.split("/")[0]
+        host = second.decode("utf-8").encode('idna')
+        url = host
+        if not "ipv6" in url : answers = dns.resolver.query(host, 'A')
+        else : answers = ['0']
+        if str(answers[0]) != "0" :
+            sock.send("PRIVMSG %s :05host %s ip is %s\n\r" % (channel,host, str(answers[0])) )
+                
 
     def http_title_cycle(self,url) : 
         headers = {'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:36.0) Gecko/20100101 Firefox/36.0' ,\
@@ -859,51 +880,55 @@ class MyDaemon(Daemon):
                 #sys.stderr.write("url:%s => A = %s \n" % (host,answers[0])) ;sys.stderr.flush()
                 #sys.stderr.flush()
                 #sys.stderr.write("check url \n") ;sys.stderr.flush()
-                if VK_RE.search(url) :
-                    vkcookie.load("%s/vk.txt" % path)
-                    vkopener = urllib2.build_opener(urllib2.HTTPCookieProcessor(vkcookie))
-                    host = "vk.com"
-                    vkopener.addheaders = [('User-Agent', "Mozilla/5.0 (X11; Linux x86_64; rv:36.0) Gecko/20100101 Firefox/36.0"),
-                    ('Accept','text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'),
-                    ('Accept-Language','en-US,en;q=0.5'),
-                    ('Connection','keep-alive'),
-                    ('host',host)]
-                    dt3 = datetime.datetime.now()
-                    res =vkopener.open(url)
-                #elif str(answers[0]) in proxy : pass
-                elif self.redisdb.hget('proxy',str(answers[0])) == "1":
-                    proxy_handler = urllib2.ProxyHandler({'http': 'http://proxy.antizapret.prostovpn.org:3128',
-                                                          'https': 'https://proxy.antizapret.prostovpn.org:3128'}) 
-                    #https_sslv3_handler = urllib.request.HTTPSHandler(context=ssl.SSLContext(ssl.PROTOCOL_SSLv3))
-                    #sys.stderr.write("url = %s \n" % url)
-                    #sys.stderr.flush()
-                    opener = urllib2.build_opener(proxy_handler)
-                    urllib2.install_opener(opener)
-                    opener.addheaders = self.headers
-                    #sys.stderr.write("via antizapret \n") ;sys.stderr.flush()
-                    dt3 = datetime.datetime.now()
-                    res = opener.open(url)
-                    useproxy = "06{proxy: antizapret}"
-                    #break
-                elif domain == "i2p" :
-                    proxy_handler = urllib2.ProxyHandler({'http': '10.1.0.1:4444',
-                                                          'https': '10.1.0.1:4444'})
-                    opener = urllib2.build_opener(proxy_handler)
-                    opener.addheaders = self.headers
-                    dt3 = datetime.datetime.now()
-                    res = opener.open(url)
-                else :
-                    sys.stderr.write("Create opener for url: %s\n" % url);sys.stderr.flush()
-                    httpopener = urllib2.build_opener(urllib2.HTTPCookieProcessor(vkcookie))
-                    httpopener.addheaders = self.headers
-                    dt3 = datetime.datetime.now()
-                    #sys.stderr.write("normal \n") ;sys.stderr.flush()
-                    res = httpopener.open(url)
-                    #sys.stderr.write("read data \n") ;sys.stderr.flush()
-                    #sys.stderr.write("Parse result \n");sys.stderr.flush()
-                    #request = urllib2.Request(url, None, headers)
-                    #res = urllib2.urlopen(request)
-                #print res.headers
+                try:
+                    if VK_RE.search(url) :
+                        vkcookie.load("%s/vk.txt" % path)
+                        vkopener = urllib2.build_opener(urllib2.HTTPCookieProcessor(vkcookie))
+                        host = "vk.com"
+                        vkopener.addheaders = [('User-Agent', "Mozilla/5.0 (X11; Linux x86_64; rv:36.0) Gecko/20100101 Firefox/36.0"),
+                        ('Accept','text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'),
+                        ('Accept-Language','en-US,en;q=0.5'),
+                        ('Connection','keep-alive'),
+                        ('host',host)]
+                        dt3 = datetime.datetime.now()
+                        res =vkopener.open(url)
+                    #elif str(answers[0]) in proxy : pass
+                    elif self.redisdb.hget('proxy',str(answers[0])) == "1":
+                        proxy_handler = urllib2.ProxyHandler({'http': 'http://proxy.antizapret.prostovpn.org:3128',
+                                                              'https': 'https://proxy.antizapret.prostovpn.org:3128'}) 
+                        #https_sslv3_handler = urllib.request.HTTPSHandler(context=ssl.SSLContext(ssl.PROTOCOL_SSLv3))
+                        #sys.stderr.write("url = %s \n" % url)
+                        #sys.stderr.flush()
+                        opener = urllib2.build_opener(proxy_handler)
+                        urllib2.install_opener(opener)
+                        opener.addheaders = self.headers
+                        #sys.stderr.write("via antizapret \n") ;sys.stderr.flush()
+                        dt3 = datetime.datetime.now()
+                        res = opener.open(url)
+                        useproxy = "06{proxy: antizapret}"
+                        #break
+                    elif domain == "i2p" :
+                        proxy_handler = urllib2.ProxyHandler({'http': '10.1.0.1:4444',
+                                                              'https': '10.1.0.1:4444'})
+                        opener = urllib2.build_opener(proxy_handler)
+                        opener.addheaders = self.headers
+                        dt3 = datetime.datetime.now()
+                        res = opener.open(url)
+                    else :
+                        sys.stderr.write("Create opener for url: %s\n" % url);sys.stderr.flush()
+                        httpopener = urllib2.build_opener(urllib2.HTTPCookieProcessor(vkcookie))
+                        httpopener.addheaders = self.headers
+                        dt3 = datetime.datetime.now()
+                        #sys.stderr.write("normal \n") ;sys.stderr.flush()
+                        res = httpopener.open(url)
+                        #sys.stderr.write("read data \n") ;sys.stderr.flush()
+                        #sys.stderr.write("Parse result \n");sys.stderr.flush()
+                        #request = urllib2.Request(url, None, headers)
+                        #res = urllib2.urlopen(request)
+                    #print res.headers
+                except: 
+                    sock.send("PRIVMSG %s :04%s ~baka~\n\r" % (channel,"Operation timed out" ))
+                    break
                 dt5 = datetime.datetime.now()
                 check_time = dt3 - dt
                 open_time = dt5 - dt3
