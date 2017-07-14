@@ -254,6 +254,13 @@ class MyDaemon(Daemon):
         self.sock.send("PRIVMSG %s :%s ~desu~\n\r" % (text['channel'], text['text'].encode(self.defaultEncoding)))
         return "OK"
 
+    def sendmsg(self, text):
+        self.lobby.send_to_all("%s\n\r" % text)
+        #telnetsock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        #telnetsock.connect(("0.0.0.0", 33333))
+        #telnetsock.send("%s\n\r" % (text.encode("utf-8")))
+        #telnetsock.close()
+
     def run(self):
         # print "daemon started"
         threadLife = True
@@ -576,7 +583,7 @@ class MyDaemon(Daemon):
                 # self.dataProc.append(torrent)
                 # time.sleep(1)
                 # self.loger("starting ping")
-                pingProcess = mp.Process(name="ping process", target=self.send_ping, args=(sock,))
+                pingProcess = mp.Process(name="ping_process", target=self.send_ping, args=(sock,))
                 pingProcess.daemon = True
                 self.dataProc.append(pingProcess)
                 pingProcess.start()
@@ -587,14 +594,14 @@ class MyDaemon(Daemon):
                 # stoleNick.daemon = True
                 # self.dataProc.append(stoleNick)
                 # stoleNick.start()
-                proxyProcess = mp.Process(name="proxy pac update process", target=self.updateProxyList, args=(ping_pid, ))
+                proxyProcess = mp.Process(name="proxy_pac_update_process", target=self.updateProxyList, args=(ping_pid, self.uri, ))
                 proxyProcess.daemon = True
                 self.dataProc.append(proxyProcess)
                 proxyProcess.start()
                 time.sleep(1)
                 if (self.vk_user != '' and self.vk_passwd != ''):
                     # self.loger("trying login to vk")
-                    vk_thread = mp.Process(name="VK authentification", target=self.vkauth)
+                    vk_thread = mp.Process(name="VK_authentification", target=self.vkauth)
                     vk_thread.daemon = True
                     # vk_thread.setName("VK authentification")
                     vk_thread.start()
@@ -610,7 +617,7 @@ class MyDaemon(Daemon):
                 t2.setName("MySQLdb check")
                 t2.start()
                 time.sleep(0.3)
-                apcProcess = mp.Process(name="apc process", target=self.apc, args=(sock,))
+                apcProcess = mp.Process(name="apc_process", target=self.apc, args=(sock,))
                 apcProcess.daemon = True
                 self.dataProc.append(apcProcess)
                 apcProcess.start()
@@ -1400,8 +1407,8 @@ class MyDaemon(Daemon):
         burning = datetime.datetime.now()
         p = mp.current_process()
         setproctitle("elis_rizon: %s" % p.name)
-        greeting_maker = Pyro4.Proxy(self.uri)
-        greeting_maker.proces("add", p.name, p.pid)
+        #greeting_maker = Pyro4.Proxy(self.uri)
+        #greeting_maker.proces("add", p.name, p.pid)
         host = "vk.com"
         vkopener.addheaders = [('User-Agent', "Mozilla/5.0 (X11; Linux x86_64; rv:36.0) Gecko/20100101 Firefox/36.0"),
                                ('Accept', 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'),
@@ -1449,7 +1456,7 @@ class MyDaemon(Daemon):
             elif old_track == "get_track":
                 self.audiosearch(sock, oldChannel, title_text, defaultEncoding, notice)
                 # sock.send("NOTICE %s :%s \n\r" % (nick,audio['url']) )
-        greeting_maker.proces("del", p.name, p.pid)
+        #greeting_maker.proces("del", p.name, p.pid)
 
     def audiosearch(self, sock, channel, name, defaultEncoding, notice=False):
         p = mp.current_process()
@@ -1659,7 +1666,10 @@ class MyDaemon(Daemon):
                 sys.stderr.flush()
         return text
 
-    def updateProxyList(self, ping_pid):
+    def updateProxyList(self, ping_pid, uri):
+        self.lobby.send_to_all("\033[32m%s. main process uri: %s\033[0m\n\r" % ("UPDATE PROXY LIST PROCESS STARTED", uri))
+        sys.stderr.write("%s. main process uri: %s \n" % ("UPDATE PROXY LIST PROCESS STARTED", uri))
+        sys.stderr.flush()
         headers = {'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:36.0) Gecko/20100101 Firefox/36.0'}
         proc = mp.current_process()
         setproctitle("elis_rizon: update proxy list")
@@ -1679,8 +1689,9 @@ class MyDaemon(Daemon):
         timer = 0
         addata = ""
         check = True
-        greeting_maker = Pyro4.Proxy(self.uri)
-        greeting_maker.proces("add", proc.name, proc.pid)
+        pyro = Pyro4.Proxy(uri)
+        pyro.proces("add", proc.name, proc.pid)
+        pyro.sendmsg("\033[35m%s\033[0m\n\r" % "UPDATE PROXY LIST PROCESS STARTED")
         # time.sleep(15)
         while check:
             if timer <= 0:
@@ -1721,12 +1732,16 @@ class MyDaemon(Daemon):
                             self.redisdb.hset('proxy', hst[0][0], 1)
                             total_hst += 1
                     # ff.close()
-                    self.lobby.send_to_all("\033[32mTOTAL_IP:%s\033[0m\n\r" % str(total_ip))
-                    self.lobby.send_to_all("\033[32mTOTAL_HOSTS:%s\033[0m\n\r" % str(total_hst))
+                    pyro.sendmsg("\033[32mTOTAL_IP:%s\033[0m" % str(total_ip))
+                    pyro.sendmsg("\033[32mTOTAL_HOSTS:%s\033[0m" % str(total_hst))
+                    #self.lobby.send_to_all("\033[32mTOTAL_IP:%s\033[0m\n\r" % str(total_ip))
+                    #self.lobby.send_to_all("\033[32mTOTAL_HOSTS:%s\033[0m\n\r" % str(total_hst))
                     addata = ddata.split("\n")[1].split(" on ")[1].strip().rstrip()
                     dt_get_ip = datetime.datetime.now()
                     if ddate != addata:
-                        t = threading.Thread(target=self.update_proxy_thread, args=(ddata,))
+                        text = colored('Found mutationes in proxy: update in database', 'cyan', attrs=['blink'])
+                        pyro.sendmsg("%s" % str(text))
+                        t = threading.Thread(target=self.update_proxy_thread, args=(ddata, pyro, ))
                         t.daemon = True
                         t.setName("update proxy thread")
                         t.start()
@@ -1737,17 +1752,17 @@ class MyDaemon(Daemon):
                         except:
                             pass
                         t = threading.Thread(target=self.get_proxy_diff,
-                                             args=(diff1, diff2, 'proxy_diff_add', 'proxy_add'))
+                                             args=(diff1, diff2, 'proxy_diff_add', 'proxy_add', pyro, ))
                         t.daemon = True
                         t.setName("add ip")
                         t.start()
                         t = threading.Thread(target=self.get_proxy_diff,
-                                             args=(diff2, diff1, 'proxy_diff_del', 'proxy_del'))
+                                             args=(diff2, diff1, 'proxy_diff_del', 'proxy_del', pyro, ))
                         t.daemon = True
                         t.setName("delete ip")
                         t.start()
                         time.sleep(1)
-                        while int(self.redisdb.get('proxy_add')) and int(self.redisdb.get('proxy_del')): pass
+                        #while int(self.redisdb.get('proxy_add')) and int(self.redisdb.get('proxy_del')): pass
                         # for data1 in ddate2 :
                         #    if not data1 in ddata2:
                         #        diff1.append(data1)
@@ -1780,6 +1795,9 @@ class MyDaemon(Daemon):
                         queue.put(q)
                         self.redisdb.set('proxylistcount', q.split('|')[1])
                         # self.redisdb.expire(proxylist,60*60*3)
+                    else:
+                        text = colored('Mutationes lists per procuratorem praestari non inveni', 'yellow', attrs=['blink'])
+                        pyro.sendmsg("%s" % str(text))
                     mod_time = time.ctime(os.path.getmtime(path + "/proxy.pac"))
                     setproctitle(
                         "elis_rizon: update proxy list. proxy.pac last modified: %s | check = %s" % (addata, check))
@@ -1794,38 +1812,26 @@ class MyDaemon(Daemon):
                     del diff2
                     # timer = 60*2
                 except:
-                    setproctitle("elis_rizon: update proxy list. error")
+                    setproctitle("elis_rizon: update proxy list. request section error")
                     time.sleep(60)
-            #try:
-            pid = greeting_maker.listProcesses()[proc.name]
-            # sys.stderr.write("%s -> %s \n" % (pid,p.pid)  )
-            # sys.stderr.flush()
-            p = Popen(['ps', '-p', str(self.mainpid)], stdout=PIPE, stderr=PIPE)
-            out, err = p.communicate()
-            out = out.split('\n')
-            if len(out) > 2:
-                    check = True
-#                if int(pid) == int(p.pid):
-#                    check = True
-            else:
-                check = False
-                sys.stderr.write("%s -> %s \n" % (pid, proc.pid))
+                    sys.stderr.write("ERROR TEXT: update proxy list. request section error \n")
+                    sys.stderr.flush()
+            try:
+                if psutil.pid_exists(int(ping_pid)):
+                    pass
+                else:
+                    os.kill(int(proc.pid), SIGTERM)
+            except:
+                setproctitle("elis_rizon: update proxy list. error on psutil section")
+                sys.stderr.write("ERROR TEXT: update proxy list. error on psutil section \n")
                 sys.stderr.flush()
-            #except:
-                setproctitle("elis_rizon: update proxy list. error on sending request. uri = %s" % self.uri)
-                time.sleep(60)
-                check = False
-            if psutil.pid_exists(int(ping_pid)):
-                pass
-            else:
-                os.kill(int(proc.pid), SIGTERM)
             time.sleep(60)
             timer -= 60
             setproctitle("elis_rizon: update proxy list. proxy.pac last modified: %s. next update after %s seconds " % (
                 addata, timer))
-        greeting_maker.proces("del", proc.name, proc.pid)
 
-    def update_proxy_thread(self, ddata):
+
+    def update_proxy_thread(self, ddata, pyro):
         ff = open(path + "/proxy.pac", "w+")
         ff.write(ddata)
         ff.close()
@@ -1837,20 +1843,26 @@ class MyDaemon(Daemon):
             #ff.write(ddata)
             #ff.close()
         except:
-            pass
+            text = colored('UPDATE PROXY LIST FAILED', 'red', attrs=['blink'])
+            pyro.sendmsg("%s" % str(text))
 
-    def get_proxy_diff(self, ddate2, ddata2, diff, name):
+    def get_proxy_diff(self, ddate2, ddata2, diff, name, pyro):
         self.redisdb.set(name, '1')
         dt = datetime.datetime.now()
+        pyro.sendmsg("\033[34mget proxy diff thread. mode: %s started.\033[0m" % str(name))
         log = ''
         for i in ddate2.keys():
             if not i in ddata2:
                 self.redisdb.hset(diff, i, i)
                 if name == 'proxy_add':
                     log = "+ %s" % i
+                    pyro.sendmsg("\033[31mDIFF:%s\033[0m" % str(log))
+                    #self.lobby.send_to_all("\033[31mDIFF:%s\033[0m\n\r" % str(log))
                 else:
                     log = "- %s" % i
-                self.loger(log)
+                    pyro.sendmsg("\033[32mDIFF:%s\033[0m" % str(log))
+                    #self.lobby.send_to_all("\033[32mDIFF:%s\033[0m\n\r" % str(log))
+                #self.loger(log)
                 # diff1.append(data1)
         self.redisdb.set(name, '0')
         dt1 = datetime.datetime.now()
@@ -1861,6 +1873,7 @@ class MyDaemon(Daemon):
             self.loger(log)
         except:
             sys.stderr.write("%s \n" % log)
+        pyro.sendmsg("\033[96mget proxy diff thread. mode: %s stopped.\033[0m" % str(name))
         # for data1 in ddata2 :
         #    if not data1 in ddate2:
         #        diff2.append(data1)
