@@ -14,7 +14,7 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 #
-# bugzilla http://bugzilla.gendalf.info/buglist.cgi?product=irc%20bot&component=all&resolution=---&list_id=2
+#
 #
 
 import transmissionrpc
@@ -1092,7 +1092,13 @@ class MyDaemon(Daemon):
                 if mimetype != "image" and mimetype == "text":
                     sech = ''
                     data = res.read()
+                    self.lobby.send_to_all("\033[35m%s %s\033[0m\n\r" % ('Content-Length:',len(data)))
+                    if len(data) == 0 :
+                        sock.send(
+                            "PRIVMSG %s :04Empty response ~baka~\n\r" % channel)
+                        break
                     prepare_part = StringIO.StringIO(data)
+                    self.lobby.send_to_all("\033[35m%s %s\033[0m\n\r" % ('Part len:',prepare_part.len))
                     #if VK_RE.search(url): 
                     #	data = res.read(5000)
                     #else:
@@ -1100,17 +1106,26 @@ class MyDaemon(Daemon):
                     #self.lobby.send_to_all("\033[32m%s (len: %s -> %s)\033[0m\n\r" % ('Parse',len(data),res.headers['content-length']))
                     read_time = datetime.datetime.now() - dt5
                     dt4 = datetime.datetime.now()
-                    part = prepare_part.read(5000)
+                    part = ''
+                    if prepare_part.len >= 5000:
+                        part = prepare_part.read(5000)
+                    else :
+                        part = prepare_part.read(prepare_part.len)
+                    self.lobby.send_to_all("\033[35m%s %s\033[0m\n\r" % ('Part len:',len(part)))
                     try:
-                        while len(part) < int(len(data)):
+                        if len(data) > 5000:
+                            while len(part) < int(len(data)):
+                                sech = re.compile(r"<title>(.+?)<\/title>", re.I | re.M | re.X).findall(part.replace("\n", ""))
+                                self.lobby.send_to_all("\033[32m%s (%s from %s)\033[0m\n\r" % ('part size',len(part),len(data)))
+                                if sech : break
+                                else: part = part + prepare_part.read(5000)
+                        else:
                             sech = re.compile(r"<title>(.+?)<\/title>", re.I | re.M | re.X).findall(part.replace("\n", ""))
-                            self.lobby.send_to_all("\033[32m%s (%s from %s)\033[0m\n\r" % ('part size',len(part),len(data)))
-                            if sech : break
-                            else: part = part + prepare_part.read(5000)
+                            self.lobby.send_to_all("\033[32m%s (%s from %s)\033[0m\n\r" % ('part size',len(part),len(data)))   
                     except:
-                        #if channel == "#trollsquad" or channel == "#test": sock.send(
-                        #    "PRIVMSG %s :04Header 'content-length' not found. READ ALL ~baka~\n\r" % channel)
-                        #data = res.read()
+                        if channel == "#trollsquad" or channel == "#test": sock.send(
+                            "PRIVMSG %s :04Header 'content-length' not found. READ ALL ~baka~\n\r" % channel)
+                        data = res.read()
                         sech = re.compile(r"<title>(.+?)<\/title>", re.I | re.M | re.X).findall(data.replace("\n", ""))
                     if res.info().get('Content-Encoding') == 'gzip':
                         buf = StringIO.StringIO(data)
@@ -1855,12 +1870,12 @@ class MyDaemon(Daemon):
             if not i in ddata2:
                 self.redisdb.hset(diff, i, i)
                 if name == 'proxy_add':
-                    log = "+ %s" % i
-                    pyro.sendmsg("\033[31mDIFF:%s\033[0m" % str(log))
+                    log = " - %s" % i
+                    pyro.sendmsg("\033[32mDIFF:%s\033[0m" % str(log))
                     #self.lobby.send_to_all("\033[31mDIFF:%s\033[0m\n\r" % str(log))
                 else:
-                    log = "- %s" % i
-                    pyro.sendmsg("\033[32mDIFF:%s\033[0m" % str(log))
+                    log = " + %s" % i
+                    pyro.sendmsg("\033[31mDIFF:%s\033[0m" % str(log))
                     #self.lobby.send_to_all("\033[32mDIFF:%s\033[0m\n\r" % str(log))
                 #self.loger(log)
                 # diff1.append(data1)
