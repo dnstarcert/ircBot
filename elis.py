@@ -52,6 +52,8 @@ try:
     import paramiko
 except: 
     pass
+import magic
+from opensky_api import OpenSkyApi
 
 # sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 os.chdir(os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe()))))
@@ -63,7 +65,7 @@ IDENT_RE = re.compile("!.?([\w\-\[\]\|`\.]+)@")
 IMAGE_RE = re.compile(r"((ht|f)tps?:\/\/[\w\.-]+\/[\w\.-\/^,]+\.(jpg|png|gif|bmp))")
 HTTP_RE = re.compile(r"(https?:\/\/[^\s^,]+)")
 HTTPS_RE = re.compile(r"(https):\/\/[^\s^,]+")
-PROXY_HOSTS_RE = re.compile(r"\"([^\s^,]+\.(ru|space|mobi|pw|ws|tw|pt|site|co|cu|com|info|net|org|gov|edu|int|mil|biz|to|pp|ne|msk|spb|nnov|od|in|ho|cc|dn|i|tut|v|eu|cy|tv|au|club|dp|sl|ddns|livejournal|herokuapp|azurewebsites|vip|xyz|me|top|biz|ua))\"")
+PROXY_HOSTS_RE = re.compile(r"([^\s^,]+\.(ru|space|mobi|pw|ws|tw|pt|site|co|cu|com|info|net|org|gov|edu|int|mil|biz|to|pp|ne|msk|spb|nnov|od|in|ho|cc|dn|i|tut|v|eu|cy|tv|au|club|dp|sl|ddns|livejournal|herokuapp|azurewebsites|vip|xyz|me|top|biz|ua|kz|online|pro|click|website|bid))+ ")
 IGNORE_RE = re.compile(r"(https?:\/\/pictures.gendalf.info)")
 VIDEO_RE = re.compile(r"\'VIDEO_ID\': \"(?P<videoid>[\w\-\.]+?)\"")
 YOUTUBE_RE = re.compile(r"(https?:\/\/www.youtube.com)")
@@ -553,6 +555,10 @@ class MyDaemon(Daemon):
         if text.find("PONG") == -1: self.lobby.send_to_all(text)
         # sys.stderr.write("RAW TEXT: %s \n" % text )
         # sys.stderr.flush()
+        try:
+            nick = self.get_nick(text)
+        except:
+            pass
         if text.find("PING :") == 0:
             self.loger("sending PONG")
             sock.send(u"%s\n\r" % (text.replace("PING", "PONG")))
@@ -621,6 +627,11 @@ class MyDaemon(Daemon):
                 apcProcess.daemon = True
                 self.dataProc.append(apcProcess)
                 apcProcess.start()
+                openskyProcess = mp.Process(name="opensky", target=self.flightradar, args=(sock,ping_pid, ))
+                openskyProcess.daemon = True
+                self.dataProc.append(openskyProcess)
+                openskyProcess.start()
+                time.sleep(1)
                 # self.dataProc.append(t)
                 # self.vk_message(sock,defaultEncoding,0)
                 # vk = threading.Thread(target=self.vk_message, args=(sock,defaultEncoding,0,sqlcursor,db))
@@ -694,6 +705,16 @@ class MyDaemon(Daemon):
             t.daemon = True
             t.setName("notice")
             t.start()
+        elif "AWAY :" in text:
+            indx = text.rfind("AWAY :")
+            reason = text[indx:-2]
+            sock.send("PRIVMSG %s :15%s %s ~desu~\n\r" % ('#trollsquad',nick,reason))
+        elif "AWAY" in text:
+            sock.send("PRIVMSG %s :15%s back ~desu~\n\r" % ('#trollsquad',nick))
+        elif "QUIT :" in text:
+            mat = open("%s/mat" % path, "r").read().split('\n')
+            secure_random = random.SystemRandom()
+            sock.send("PRIVMSG %s :%s\n\r" % ('#trollsquad',secure_random.choice(mat)))
         else:
             # sys.stderr.write("Received data: ",
             #    text[:-2].decode(defaultEncoding).encode("utf-8"))
@@ -958,7 +979,12 @@ class MyDaemon(Daemon):
                 # sys.stderr.write("host:%s \n" % url)
                 # sys.stderr.flush()
                 if not "ipv6" in url:
-                    answers = dns.resolver.query(host, 'A')
+                    try:
+                        answers = dns.resolver.query(host, 'A')
+                    except:
+                        answers = ['0']
+                        self.lobby.send_to_all("\033[32mNo Nameservers: All nameservers failed to answer the query %s\033[0m\n\r" % url)
+                        sock.send("PRIVMSG %s :04No Nameservers: All nameservers failed to answer the query %s ~baka~\n\r" % (channel, url) )
                 else:
                     answers = ['0']
                 # sys.stderr.write("url:%s => A = %s \n" % (host,answers[0])) ;sys.stderr.flush()
@@ -1092,12 +1118,20 @@ class MyDaemon(Daemon):
                 if mimetype != "image" and mimetype == "text":
                     sech = ''
                     data = res.read()
+                    self.lobby.send_to_all(
+                        "\033[92m%s %s\033[0m\n\r" % ('INFO:', res.info())
+                                          )
+                    magic_part = StringIO.StringIO(data)
+                    mime = magic.from_buffer(magic_part.read(), mime=True)
+                    self.lobby.send_to_all(
+                        "\033[96m%s %s\033[0m\n\r" % ('MIME:', mime))
                     self.lobby.send_to_all("\033[35m%s %s\033[0m\n\r" % ('Content-Length:',len(data)))
                     if len(data) == 0 :
                         sock.send(
                             "PRIVMSG %s :04Empty response ~baka~\n\r" % channel)
                         break
                     prepare_part = StringIO.StringIO(data)
+
                     self.lobby.send_to_all("\033[35m%s %s\033[0m\n\r" % ('Part len:',prepare_part.len))
                     #if VK_RE.search(url): 
                     #	data = res.read(5000)
@@ -1127,7 +1161,7 @@ class MyDaemon(Daemon):
                             "PRIVMSG %s :04Header 'content-length' not found. READ ALL ~baka~\n\r" % channel)
                         data = res.read()
                         sech = re.compile(r"<title>(.+?)<\/title>", re.I | re.M | re.X).findall(data.replace("\n", ""))
-                    if res.info().get('Content-Encoding') == 'gzip':
+                    if 'gzip' in mime:
                         buf = StringIO.StringIO(data)
                         f = gzip.GzipFile(fileobj=buf)
                         data = f.read()
@@ -1460,6 +1494,7 @@ class MyDaemon(Daemon):
             else:
                 sock.send("PRIVMSG %s :04%s %s ~desu~\n\r" % (
                     channel, nick, "hears the voice conspiratorially cockroaches in his head"))
+                return 1
             if len(title_text) != 0 and old_track == "":
                 recode_time = datetime.datetime.now()
                 recode_time_delta = str(recode_time - server_request).split(":")[
@@ -1809,6 +1844,10 @@ class MyDaemon(Daemon):
                             addata, added, deleted, total, delta_all, delta, proc.pid)
                         queue.put(q)
                         self.redisdb.set('proxylistcount', q.split('|')[1])
+                        pyro.sendmsg("\033[32mProxy DIFF:\nAdd:%s\nDel:%s,\nTotal:%s\033[0m" % (
+                            added, deleted, total
+                                                                                               )
+                                     )
                         # self.redisdb.expire(proxylist,60*60*3)
                     else:
                         text = colored('Mutationes lists per procuratorem praestari non inveni', 'yellow', attrs=['blink'])
@@ -1871,11 +1910,11 @@ class MyDaemon(Daemon):
                 self.redisdb.hset(diff, i, i)
                 if name == 'proxy_add':
                     log = " - %s" % i
-                    pyro.sendmsg("\033[32mDIFF:%s\033[0m" % str(log))
+                    #pyro.sendmsg("\033[32mDIFF:%s\033[0m" % str(log))
                     #self.lobby.send_to_all("\033[31mDIFF:%s\033[0m\n\r" % str(log))
                 else:
                     log = " + %s" % i
-                    pyro.sendmsg("\033[31mDIFF:%s\033[0m" % str(log))
+                    #pyro.sendmsg("\033[31mDIFF:%s\033[0m" % str(log))
                     #self.lobby.send_to_all("\033[32mDIFF:%s\033[0m\n\r" % str(log))
                 #self.loger(log)
                 # diff1.append(data1)
@@ -1914,33 +1953,49 @@ class MyDaemon(Daemon):
         interesting = ('status', 'loadpct', 'bcharge', 'timeleft')
         apc_status = {}   
         #global previus_state
-        previus_state = {'status' : '', 'bcharge' : '100.0'}
+        previus_state = {'status' : '', 'bcharge' : '100.0', 'temp' : 20}
         time.sleep(20)
         state = 100
         check = True
+        CoreTemperature = 20
         while check:
-            time.sleep(30)
+            time.sleep(2)
             try:
                 res = check_output("/sbin/apcaccess")
+                temerature = check_output("/usr/bin/sensors")
+                for lm_sensors in temerature.split('\n'):
+                    if 'Core 0' in lm_sensors:
+                    	CoreTemperature = int(re.compile(r'Core 0:\W+(?P<temp>[\d]{1,3})', re.I).search(
+                                lm_sensors).group('temp'))
                 msg = ''
                 for line in res.split('\n'):
                     (key, spl, val) = line.partition(': ')
                     key = key.rstrip().lower()
                     val = val.strip()
                     apc_status[key] = val.replace(' Percent','%')
+                if previus_state['temp'] - CoreTemperature > 0:
+                    tempDelta = previus_state['temp'] - CoreTemperature
+                else:
+                    tempDelta = CoreTemperature - previus_state['temp']
+                if tempDelta >= 2:
+                    previus_state['temp'] = CoreTemperature
+                    self.vk_status('%s. Core temperature %s degrees.' % (apc_status['status'],CoreTemperature)) 
                 if apc_status['status'] != previus_state['status'] and apc_status['status'] == "ONLINE" :
-                    sock.send("PRIVMSG #trollsquad :UPS Status: 03%s\n\r" % apc_status['status'] )
+                    sock.send("PRIVMSG #trollsquad :UPS Status: 03%s. Core temperature %s degrees.\n\r" % (apc_status['status'],CoreTemperature) )
                     self.vk_message('%s --> UPS Status: %s' % (datetime.datetime.now(),apc_status['status']) )
                     previus_state['status'] = apc_status['status']
                     previus_state['bcharge'] = 100
+                    self.vk_status('%s. Core temperature %s degrees.' % (apc_status['status'],CoreTemperature))
                 if apc_status['status'] == 'ONBATT':
                     state = int(apc_status['bcharge'].split('.')[0])
                     if apc_status['status'] != previus_state['status'] :
                         self.vk_message('%s --> UPS Status: %s' % (datetime.datetime.now(),apc_status['status']) )
+                        sock.send("PRIVMSG #trollsquad :UPS Status: 03%s\n\r" % apc_status['status'] )
                         previus_state['status'] = apc_status['status']
+                        self.vk_status('%s. Core temperature %s degrees.' % (apc_status['status'],CoreTemperature))
                     if apc_status['bcharge'] != previus_state['bcharge']:
-                        if (int(previus_state['bcharge'].split('.')[0]) - 10 ) >= state or int(state) <= 32 :
-                            previus_state['bcharge'] = apc_status['bcharge']
+                        if (int(previus_state['bcharge']) - 10 ) >= state or int(state) <= 32 :
+                            previus_state['bcharge'] = apc_status['bcharge'].split('.')[0]
                             sock.send("PRIVMSG #trollsquad :UPS Status: 04%s , Battery charge: 04%s , UPS Load: %s , Time Left: 04%s\n\r" %
                                 (apc_status['status'], apc_status['bcharge'], apc_status['loadpct'], apc_status['timeleft']))
                             msg = "UPS Status: %s , Battery charge: %s , UPS Load: %s , Time Left: %s" %\
@@ -1951,13 +2006,24 @@ class MyDaemon(Daemon):
                             msg = "%s --> UPS Status: %s , Battery charge: %s , UPS Load: %s , Time Left: %s" %\
                                 (datetime.datetime.now(),apc_status['status'], apc_status['bcharge'], apc_status['loadpct'], apc_status['timeleft'])
                             self.vk_message(msg)
-                        msg = "%s --> UPS Status: %s , Battery charge: %s , UPS Load: %s , Time Left: %s" %\
-                                (datetime.datetime.now(),apc_status['status'], apc_status['bcharge'], apc_status['loadpct'], apc_status['timeleft'])
-                        self.lobby.send_to_all("\033[32m%s\033[0m\n\r" % msg)
-                        msg = "Previus state: \033[32m%s\033[0m Current state: \033[33m%s\033[0m" % (int(previus_state['bcharge'].split('.')[0]), state)
-                        self.lobby.send_to_all("%s\n\r" % msg)
+                            sock.send("PRIVMSG #trollsquad :UPS Status: 04%s , Battery charge: 04%s , UPS Load: %s , Time Left: 04%s\n\r" %
+                                (apc_status['status'], apc_status['bcharge'], apc_status['loadpct'], apc_status['timeleft']))
+                        if int(state) = 31:
+                            self.vk_wallPost('Низкий заряд батареи. До отключения %s' % apc_status['timeleft'] )
+                        if int(state) <= 30:
+                            self.vk_status('SERVER STATUS: OFFLINE')
+                            self.vk_wallPost('Батарея разряжена. Отключаюсь')
+
+                        #msg = "%s --> UPS Status: %s , Battery charge: %s , UPS Load: %s , Time Left: %s" %\
+                        #        (datetime.datetime.now(),apc_status['status'], apc_status['bcharge'], apc_status['loadpct'], apc_status['timeleft'])
+                        #self.lobby.send_to_all("\033[32m%s\033[0m\n\r" % msg)
+                        #msg = "Previus state: \033[32m%s\033[0m Current state: \033[33m%s\033[0m" % (int(previus_state['bcharge']), state)
+                        #self.lobby.send_to_all("%s\n\r" % msg)
+                    #msg = "%s --> UPS Status: %s , Battery charge: %s , UPS Load: %s , Time Left: %s" %\
+                    #            (datetime.datetime.now(),apc_status['status'], apc_status['bcharge'], apc_status['loadpct'], apc_status['timeleft'])
+                    #self.lobby.send_to_all("\033[32m%s\033[0m\n\r" % msg)
             except:
-                pass
+                self.lobby.send_to_all("\033[32m%s\033[0m\n\r" % 'Что-то пошло не так')
             finally:
                 try:
                     pid = greeting_maker.listProcesses()[p.name]
@@ -1987,6 +2053,37 @@ class MyDaemon(Daemon):
             data_encoded = urllib.urlencode(formdata)
             res = vkopener.open(url, data_encoded)
         except: pass
+
+    def vk_status(self,text):
+        try:
+            host = "vk.com"
+            vkopener.addheaders = [('User-Agent', "Mozilla/5.0 (X11; Linux x86_64; rv:36.0) Gecko/20100101 Firefox/36.0"),
+                                   ('Accept', 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'),
+                                   ('Accept-Language', 'en-US,en;q=0.5'),
+                                   ('Connection', 'keep-alive'),
+                                   ('host', host)]
+            url = 'https://api.vk.com/method/status.set'
+            formdata = {'text': text, 'access_token': self.token} 
+            data_encoded = urllib.urlencode(formdata)
+            res = vkopener.open(url, data_encoded)
+            #self.lobby.send_to_all("\033[32m%s\033[0m\n\r" % res.read())
+        except: pass
+
+    def vk_wallPost(self,text):
+        try:
+            host = "vk.com"
+            vkopener.addheaders = [('User-Agent', "Mozilla/5.0 (X11; Linux x86_64; rv:36.0) Gecko/20100101 Firefox/36.0"),
+                                   ('Accept', 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'),
+                                   ('Accept-Language', 'en-US,en;q=0.5'),
+                                   ('Connection', 'keep-alive'),
+                                   ('host', host)]
+            url = 'https://api.vk.com/method/wall.post'
+            formdata = {'owner_id': self.user_id,'message': text, 'access_token': self.token} 
+            data_encoded = urllib.urlencode(formdata)
+            res = vkopener.open(url, data_encoded)
+            #self.lobby.send_to_all("\033[32m%s\033[0m\n\r" % res.read())
+        except: pass
+
     def shutdown(self):
         try:
             config = ConfigParser.RawConfigParser()
@@ -1998,6 +2095,54 @@ class MyDaemon(Daemon):
             stdin, stdout, stderr = ssh.exec_command("shutdown -P now")
         except:
             pass
+    def flightradar(self,sock,ping_pid):
+        self.lobby.send_to_all("\033[32m%s\033[0m\n\r" % "FLIHT RADAR START")
+        proc = mp.current_process()
+        setproctitle("elis_rizon: open sky")
+        try:
+            pf = open('/tmp/elis_opensky.pid', 'r')
+            proxy_pid = int(pf.read().strip())
+            os.kill(int(proxy_pid), SIGTERM)
+            pf.close()
+        except:
+            pass
+        pf = open('/tmp/elis_opensky.pid', 'w')
+        pf.write(str(proc.pid))
+        pf.close()
+        api = OpenSkyApi()
+        global threadLife
+        fl = True
+        ship = {}
+        while threadLife:
+            try:
+                states = api.get_states()
+                for s in states.states:
+                    shipname = s.callsign.strip().rstrip().encode('utf-8')
+                    if s.on_ground and s.origin_country == 'Russian Federation':
+                        if not ship.has_key(shipname) and shipname != '' :
+                            ship[shipname] = s.on_ground
+                            self.lobby.send_to_all("\033[32m%s %s %s '%s'\033[0m\n\r" % (shipname,s.geo_altitude,s.on_ground,s.origin_country))
+                            #sock.send("PRIVMSG %s :Информбюро бесполезной информации сообщает, что борт %s находится в аэропорту и готовится к взлёту. Такие дела,ребята.\n\r".decode('utf-8').encode('utf-8') % 
+                        	#('#trollsquad',shipname))
+                    if ship.has_key(shipname) and not s.on_ground:
+                        #mat = open("%s/mat" % path, "r").read().split('\n')
+                        #secure_random = random.SystemRandom()
+                        #sock.send("PRIVMSG %s :%s\n\r" % ('#trollsquad',secure_random.choice(mat)))
+                        self.lobby.send_to_all("\033[32mship:'%s'\non ground:%s\naltitude:%s\ncountry:%s\033[0m\n\r" %
+                                               (shipname,s.on_ground,s.geo_altitude,s.origin_country))
+                        sock.send("PRIVMSG %s :Информбюро бесполезной информации сообщает, что борт %s взлетел. Его высота составляет %s метров над уровнем моря. Такие дела,ребята.\n\r".decode('utf-8').encode('utf-8') % 
+                        	('#trollsquad',shipname,s.baro_altitude))
+                        del ship[shipname]
+                        time.sleep(10)
+                        break
+                time.sleep(60)
+                if psutil.pid_exists(int(ping_pid)):
+                    pass
+                else:
+                    os.kill(int(proc.pid), SIGTERM)
+            except:
+                self.lobby.send_to_all("\033[32m%s\033[0m\n\r" % "OpenSkyApi error")
+                time.sleep(60)
 ##Angel|off
 if __name__ == "__main__":
     daemon = MyDaemon('/tmp/elis_rizon.pid')
