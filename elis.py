@@ -65,7 +65,7 @@ IDENT_RE = re.compile("!.?([\w\-\[\]\|`\.]+)@")
 IMAGE_RE = re.compile(r"((ht|f)tps?:\/\/[\w\.-]+\/[\w\.-\/^,]+\.(jpg|png|gif|bmp))")
 HTTP_RE = re.compile(r"(https?:\/\/[^\s^,]+)")
 HTTPS_RE = re.compile(r"(https):\/\/[^\s^,]+")
-PROXY_HOSTS_RE = re.compile(r"([^\s^,]+\.(ru|space|mobi|pw|ws|tw|pt|site|co|cu|com|info|net|org|gov|edu|int|mil|biz|to|pp|ne|msk|spb|nnov|od|in|ho|cc|dn|i|tut|v|eu|cy|tv|au|club|dp|sl|ddns|livejournal|herokuapp|azurewebsites|vip|xyz|me|top|biz|ua|kz|online|pro|click|website|bid))+ ")
+PROXY_HOSTS_RE = re.compile(r"([^\s^,]+\.(name|ru|space|mobi|pw|ws|tw|pt|site|co|cu|com|info|net|org|gov|edu|int|mil|biz|to|pp|ne|msk|spb|nnov|od|in|ho|cc|dn|i|tut|v|eu|cy|tv|au|club|dp|sl|ddns|livejournal|herokuapp|azurewebsites|vip|xyz|me|top|biz|ua|kz|online|pro|click|website|bid))+ ")
 IGNORE_RE = re.compile(r"(https?:\/\/pictures.gendalf.info)")
 VIDEO_RE = re.compile(r"\'VIDEO_ID\': \"(?P<videoid>[\w\-\.]+?)\"")
 YOUTUBE_RE = re.compile(r"(https?:\/\/www.youtube.com)")
@@ -187,7 +187,7 @@ class MyDaemon(Daemon):
                ('Accept', 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'),
                ('Accept-Language', 'en-US,en;q=0.5'),
                ('Connection', 'keep-alive')]
-
+    @Pyro4.expose
     def proces(self, doing, name, pid):
         # global processes
         # self.loger("action: %s => name : %s => pid: %s" % (doing,name,pid))
@@ -228,6 +228,7 @@ class MyDaemon(Daemon):
         for item in self.processes.values():
             item.terminate()
 
+    @Pyro4.expose
     def exterminate(self):
         pr = mp.current_process()
         pf = file('/tmp/elis_rizon.pid', 'r')
@@ -244,6 +245,7 @@ class MyDaemon(Daemon):
                 os.remove('/tmp/elis_rizon.pid')
                 os.kill(pid, SIGTERM)
 
+    @Pyro4.expose
     def listProcesses(self):
         # print self.processes
         # sys.stdout.flush()
@@ -251,11 +253,12 @@ class MyDaemon(Daemon):
 
     # def start(self):
     #    self.run()
-
+    @Pyro4.expose
     def say(self, text):
         self.sock.send("PRIVMSG %s :%s ~desu~\n\r" % (text['channel'], text['text'].encode(self.defaultEncoding)))
         return "OK"
 
+    @Pyro4.expose
     def sendmsg(self, text):
         self.lobby.send_to_all("%s\n\r" % text)
         #telnetsock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -627,10 +630,10 @@ class MyDaemon(Daemon):
                 apcProcess.daemon = True
                 self.dataProc.append(apcProcess)
                 apcProcess.start()
-                openskyProcess = mp.Process(name="opensky", target=self.flightradar, args=(sock,ping_pid, ))
-                openskyProcess.daemon = True
-                self.dataProc.append(openskyProcess)
-                openskyProcess.start()
+                #openskyProcess = mp.Process(name="opensky", target=self.flightradar, args=(sock,ping_pid, ))
+                #openskyProcess.daemon = True
+                #self.dataProc.append(openskyProcess)
+                #openskyProcess.start()
                 time.sleep(1)
                 # self.dataProc.append(t)
                 # self.vk_message(sock,defaultEncoding,0)
@@ -649,6 +652,7 @@ class MyDaemon(Daemon):
             # print recv_data[indx:-3]
         elif " KICK #" in text:
             print "KICK"
+            self.lobby.send_to_all('KICK TXT: %s\n\r' % text)
             p = re.compile(r"( [a-zA-Z0-9].*) :")
             text2 = p.findall(text)[0]
             indx = text2.rfind("#")
@@ -657,7 +661,9 @@ class MyDaemon(Daemon):
             reason = text[indx3 + 1:]
             channel = text2[indx:indx + indx2]
             us_nick = text2[indx + indx2 + 1:]
-            if us_nick == my_nick[5:-2]:
+            self.lobby.send_to_all('us_nick =(%s) <--> my_nick=(%s)\n\r' %(repr(us_nick),repr(self.my_nick.strip().rstrip() ) ) )
+            if us_nick == self.my_nick.strip().rstrip():
+                self.lobby.send_to_all('try to join %s\n\r' % channel)
                 sock.send('JOIN %s \n\r' % channel)
         elif "VERSION" in text:
             # chat_box.append(repr(recv_data.decode("cp1251")))
@@ -917,12 +923,15 @@ class MyDaemon(Daemon):
         self.loger("returned data {charset:'%s' , title:'%s}'" % (charset, title))
         return charset, title
 
+
+    @Pyro4.expose
     def httpKillThread(self, name, pid):
         t = threading.Thread(target=self.httpKill, args=(name, pid))
         t.daemon = False
         t.setName(name)
         t.start()
 
+    @Pyro4.expose
     def httpKill(self, name, pid):
         sys.stdout.write("start timer for %s \n" % name)
         sys.stdout.flush()
@@ -1959,7 +1968,7 @@ class MyDaemon(Daemon):
         check = True
         CoreTemperature = 20
         while check:
-            time.sleep(2)
+            time.sleep(10)
             try:
                 res = check_output("/sbin/apcaccess")
                 temerature = check_output("/usr/bin/sensors")
@@ -1994,26 +2003,31 @@ class MyDaemon(Daemon):
                         previus_state['status'] = apc_status['status']
                         self.vk_status('%s. Core temperature %s degrees.' % (apc_status['status'],CoreTemperature))
                     if apc_status['bcharge'] != previus_state['bcharge']:
-                        if (int(previus_state['bcharge']) - 10 ) >= state or int(state) <= 32 :
+                        if (int(previus_state['bcharge']) - 10 ) >= state or int(state) <= 34 :
                             previus_state['bcharge'] = apc_status['bcharge'].split('.')[0]
                             sock.send("PRIVMSG #trollsquad :UPS Status: 04%s , Battery charge: 04%s , UPS Load: %s , Time Left: 04%s\n\r" %
                                 (apc_status['status'], apc_status['bcharge'], apc_status['loadpct'], apc_status['timeleft']))
                             msg = "UPS Status: %s , Battery charge: %s , UPS Load: %s , Time Left: %s" %\
                                 (apc_status['status'], apc_status['bcharge'], apc_status['loadpct'], apc_status['timeleft'])
-                            #self.vk_message(msg)
-                        
-                        if int(state) <= 32:
+                            self.vk_message(msg)
+                            self.vk_status('%s. Core temperature %s degrees.' % (apc_status['status'],CoreTemperature))
+                            self.lobby.send_to_all("\033[32m%s\033[0m\n\r" % msg)
+                        if int(state) <= 35:
                             msg = "%s --> UPS Status: %s , Battery charge: %s , UPS Load: %s , Time Left: %s" %\
                                 (datetime.datetime.now(),apc_status['status'], apc_status['bcharge'], apc_status['loadpct'], apc_status['timeleft'])
                             self.vk_message(msg)
-                            sock.send("PRIVMSG #trollsquad :UPS Status: 04%s , Battery charge: 04%s , UPS Load: %s , Time Left: 04%s\n\r" %
-                                (apc_status['status'], apc_status['bcharge'], apc_status['loadpct'], apc_status['timeleft']))
-                        if int(state) = 31:
+                            #sock.send("PRIVMSG #trollsquad :UPS Status: 04%s , Battery charge: 04%s , UPS Load: %s , Time Left: 04%s\n\r" %
+                            #    (apc_status['status'], apc_status['bcharge'], apc_status['loadpct'], apc_status['timeleft']))
+                            #sys.stderr.write("bcharge: \n" % state);sys.stderr.flush()
+                        if int(state) == 34:
                             self.vk_wallPost('Низкий заряд батареи. До отключения %s' % apc_status['timeleft'] )
-                        if int(state) <= 30:
+                        if int(state) == 32:
                             self.vk_status('SERVER STATUS: OFFLINE')
                             self.vk_wallPost('Батарея разряжена. Отключаюсь')
-
+                    msg = "UPS Status: %s , Battery charge: %s , UPS Load: %s , Time Left: %s" %\
+                                (apc_status['status'], apc_status['bcharge'], apc_status['loadpct'], apc_status['timeleft'])
+                    self.lobby.send_to_all("\033[32m%s\033[0m\n\r" % msg)
+                previus_state['bcharge'] = apc_status['bcharge'].split('.')[0]
                         #msg = "%s --> UPS Status: %s , Battery charge: %s , UPS Load: %s , Time Left: %s" %\
                         #        (datetime.datetime.now(),apc_status['status'], apc_status['bcharge'], apc_status['loadpct'], apc_status['timeleft'])
                         #self.lobby.send_to_all("\033[32m%s\033[0m\n\r" % msg)
@@ -2049,9 +2063,10 @@ class MyDaemon(Daemon):
                                    ('Connection', 'keep-alive'),
                                    ('host', host)]
             url = 'https://api.vk.com/method/messages.send'
-            formdata = {'user_id': self.user_id, 'message': text, 'access_token': self.token} 
+            formdata = {'user_id': self.user_id, 'message': text, 'access_token': self.token,'v':'5.73'} 
             data_encoded = urllib.urlencode(formdata)
             res = vkopener.open(url, data_encoded)
+            self.lobby.send_to_all("\033[32mVK MESSAGE: %s\033[0m\n\r" % res.read())
         except: pass
 
     def vk_status(self,text):
@@ -2063,10 +2078,10 @@ class MyDaemon(Daemon):
                                    ('Connection', 'keep-alive'),
                                    ('host', host)]
             url = 'https://api.vk.com/method/status.set'
-            formdata = {'text': text, 'access_token': self.token} 
+            formdata = {'text': text, 'access_token': self.token,'v':'5.73','captcha_sid':'900635901357','captcha_key':'zass2'} 
             data_encoded = urllib.urlencode(formdata)
             res = vkopener.open(url, data_encoded)
-            #self.lobby.send_to_all("\033[32m%s\033[0m\n\r" % res.read())
+            self.lobby.send_to_all("VK STATUS\033[32m%s\033[0m\n\r" % res.read())
         except: pass
 
     def vk_wallPost(self,text):
@@ -2078,10 +2093,10 @@ class MyDaemon(Daemon):
                                    ('Connection', 'keep-alive'),
                                    ('host', host)]
             url = 'https://api.vk.com/method/wall.post'
-            formdata = {'owner_id': self.user_id,'message': text, 'access_token': self.token} 
+            formdata = {'owner_id': self.user_id,'message': text, 'access_token': self.token,'v':'5.73'} 
             data_encoded = urllib.urlencode(formdata)
             res = vkopener.open(url, data_encoded)
-            #self.lobby.send_to_all("\033[32m%s\033[0m\n\r" % res.read())
+            self.lobby.send_to_all("\033[32mVK WALL%s\033[0m\n\r" % res.read())
         except: pass
 
     def shutdown(self):
